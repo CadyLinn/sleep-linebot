@@ -190,6 +190,10 @@ def _strip_repeat_text(text: str):
     return re.sub(r"(?:鬧鐘)?(?:響|通知|提醒)?\s*\d{1,2}\s*次", "", text).strip()
 
 
+def _is_alarm_repeat_command(text: str):
+    return bool(re.fullmatch(r"(?:鬧鐘)?(?:響|通知|提醒)\s*\d{1,2}\s*次", text.strip()))
+
+
 def _parse_alarm_request(text: str, now: datetime):
     raw = text.strip()
     raw = re.sub(r"^(設定鬧鐘|鬧鐘|叫我|提醒我)\s*", "", raw).strip()
@@ -475,7 +479,7 @@ def handle_message(event):
             reply(token, TextMessage(text="✅ 已取消設定"))
         return
 
-    if text.startswith("鬧鐘響"):
+    if pending_action != "waiting_alarm_repeat" and _is_alarm_repeat_command(text):
         repeat_total = _parse_repeat_count(text)
         if repeat_total and set_alarm_repeat(user_id, repeat_total):
             alarm = get_alarm_settings(user_id)
