@@ -1,4 +1,5 @@
 import os
+import re
 import logging
 from datetime import datetime, timedelta
 from flask import Flask, request, abort
@@ -42,8 +43,8 @@ TZ = pytz.timezone("Asia/Taipei")
 # 睡眠類型定義
 SLEEP_TYPES = {
     "小睡": {"emoji": "💤", "label": "小睡（20-90分鐘）", "suggestion_hours": 0.5},
-    "中睡": {"emoji": "😴", "label": "中睡（3-5小時）",  "suggestion_hours": 4},
-    "大睡": {"emoji": "🛌", "label": "大睡（7-9小時）",  "suggestion_hours": 8},
+    "中睡": {"emoji": "😴", "label": "中睡（3-5小時）",   "suggestion_hours": 4},
+    "大睡": {"emoji": "🛌", "label": "大睡（7-9小時）",   "suggestion_hours": 8},
 }
 
 ALARM_MESSAGES = [
@@ -68,23 +69,16 @@ def send_push(user_id: str, text: str):
 def check_alarms():
     now = datetime.now(TZ)
     current_time = now.strftime("%H:%M")
-
     for user_id, alarm_time, alarm_count in get_all_alarms():
         if alarm_time == current_time and alarm_count < 3:
             msg = ALARM_MESSAGES[alarm_count].format(time=current_time)
             send_push(user_id, msg)
             increment_alarm_count(user_id)
-        # 過了鬧鐘時間後重置 count，讓隔天可以再響
         elif alarm_time != current_time and alarm_count > 0:
-            # 只在整點後 5 分鐘重置，避免同分鐘重置
             reset_alarm_count(user_id)
-
     for user_id, reminder_time in get_all_bedtime_reminders():
         if reminder_time == current_time:
-            send_push(
-                user_id,
-                f"🌙 睡前提醒！現在是 {current_time}\n準備放鬆一下，準備睡覺吧～ 😴",
-            )
+            send_push(user_id, f"🌙 睡前提醒！現在是 {current_time}\n準備放鬆一下，準備睡覺吧～ 😴")
 
 
 scheduler.add_job(check_alarms, "cron", minute="*")
@@ -130,8 +124,53 @@ def _parse_time(text: str):
         return None
 
 
-def _calc_sleep_hours(now: datetime, wake_time_str: str):
-    """計算從現在到 wake_time_str 有多少小時可睡"""
+def _parse_duration_to_minutes(text: str):
+    """
+    解析自然語言時長，回傳分鐘數（int）或 None。
+    支援格式：
+      10分 / 10分鐘 / 30min
+      1小時 / 1hr / 1h
+      1小時30分 / 1h30m / 1.5小時
+      90分鐘
+      我要睡10分鐘 / 睡1小時30分
+    """
+    text = text.strip()
+    # 去掉前綴詞
+    text = re.sub(r"^(我要|要|我想|想|我要睡|睡|幫我睡|設定)", "", text)
+    text = text.strip()
+
+    total = 0
+    matched = False
+
+    # 小時.分 小數格式：1.5小時
+    m = re.search(r"(\d+\.?\d*)\s*(小時|hr|hour|h)", text)
+    if m:
+        total += float(m.group(1)) * 60
+        matched = True
+
+    # 分鐘
+    m = re.search(r"(\d+)\s*(分鐘|分|min|m)", text)
+    if m:
+        total += int(m.group(1))
+        matched = True
+
+    # 純數字（若文字包含「分」意圖）
+    if not matched:
+        m = re.fullmatch(r"(\d+)", text.strip())
+        if m:
+            val = int(m.group(1))
+            # 小於 24 視為小時，大於等於 24 視為分鐘
+            if val < 24:
+                total = val * 60
+            else:
+                total = val
+            matched = True
+
+    return int(total) if matched and total > 0 else None
+
+
+def _calc_from_wake_time(now: datetime, wake_time_str: str):
+    """從起床時間字串算出剩餘可睡時間"""
     wake = datetime.strptime(wake_time_str, "%H:%M").replace(
         year=now.year, month=now.month, day=now.day, tzinfo=TZ
     )
@@ -139,9 +178,35 @@ def _calc_sleep_hours(now: datetime, wake_time_str: str):
         wake += timedelta(days=1)
     delta = wake - now
     total_min = int(delta.total_seconds() / 60)
-    h = total_min // 60
-    m = total_min % 60
+    return total_min // 60, total_min % 60, wake
+
+
+def _calc_from_duration(now: datetime, total_minutes: int):
+    """從時長（分鐘）算出起床時間"""
+    wake = now + timedelta(minutes=total_minutes)
+    h = total_minutes // 60
+    m = total_minutes % 60
     return h, m, wake
+
+
+def _start_sleep_and_reply(token, user_id, now, sleep_type, hours, minutes, wake_dt):
+    """統一的「開始睡眠＋建立回覆」邏輯"""
+    s_info = SLEEP_TYPES.get(sleep_type, SLEEP_TYPES["大睡"])
+    wake_str = wake_dt.strftime("%H:%M")
+    start_sleep(user_id, now.isoformat(), sleep_type=sleep_type, target_wake=wake_str)
+    set_alarm(user_id, wake_str)
+    flex = build_sleep_countdown(
+        sleep_type=sleep_type,
+        sleep_type_info=s_info,
+        start_time=now,
+        wake_time=wake_dt,
+        hours=hours,
+        minutes=minutes,
+    )
+    reply(token, FlexMessage(
+        alt_text=f"{s_info['emoji']} 已開始{sleep_type}，{wake_str} 叫你起床",
+        contents=FlexContainer.from_dict(flex),
+    ))
 
 
 def _sleep_type_quick_reply():
@@ -149,6 +214,18 @@ def _sleep_type_quick_reply():
         QuickReplyItem(action=MessageAction(label="💤 小睡", text="小睡")),
         QuickReplyItem(action=MessageAction(label="😴 中睡", text="中睡")),
         QuickReplyItem(action=MessageAction(label="🛌 大睡", text="大睡")),
+    ])
+
+
+def _duration_quick_reply():
+    """起床時間輸入的快速選項"""
+    return QuickReply(items=[
+        QuickReplyItem(action=MessageAction(label="20分鐘", text="20分鐘")),
+        QuickReplyItem(action=MessageAction(label="30分鐘", text="30分鐘")),
+        QuickReplyItem(action=MessageAction(label="1小時", text="1小時")),
+        QuickReplyItem(action=MessageAction(label="1.5小時", text="1.5小時")),
+        QuickReplyItem(action=MessageAction(label="2小時", text="2小時")),
+        QuickReplyItem(action=MessageAction(label="指定時間", text="指定起床時間")),
     ])
 
 
@@ -161,44 +238,64 @@ def handle_message(event):
     token = event.reply_token
     now = datetime.now(TZ)
 
-    # ── 優先處理 pending 狀態（等待輸入起床時間）──
+    # ════════════════════════════════════════════════════
+    # 優先處理 pending 狀態
+    # ════════════════════════════════════════════════════
     pending_action, pending_sleep_type = get_pending(user_id)
 
+    # ── 等待輸入起床方式（時間 or 時長）──
     if pending_action == "waiting_wake_time":
+
+        # 用戶選「指定起床時間」→ 切換狀態
+        if text in ["指定起床時間", "指定時間", "幾點"]:
+            set_pending(user_id, "waiting_exact_time", sleep_type=pending_sleep_type)
+            reply(token, TextMessage(text=(
+                "⏰ 請輸入起床時間（24小時制）\n\n"
+                "例如：07:30　08:00　22:30"
+            )))
+            return
+
+        # 嘗試解析時長
+        minutes = _parse_duration_to_minutes(text)
+        if minutes and minutes > 0:
+            clear_pending(user_id)
+            h, m, wake_dt = _calc_from_duration(now, minutes)
+            _start_sleep_and_reply(token, user_id, now, pending_sleep_type, h, m, wake_dt)
+            return
+
+        # 嘗試解析時間點
         time_str = _parse_time(text)
         if time_str:
             clear_pending(user_id)
-            h, m, wake_dt = _calc_sleep_hours(now, time_str)
-            s_info = SLEEP_TYPES.get(pending_sleep_type, SLEEP_TYPES["大睡"])
+            h, m, wake_dt = _calc_from_wake_time(now, time_str)
+            _start_sleep_and_reply(token, user_id, now, pending_sleep_type, h, m, wake_dt)
+            return
 
-            # 記錄睡眠
-            start_sleep(user_id, now.isoformat(), sleep_type=pending_sleep_type, target_wake=time_str)
-
-            # 自動設定鬧鐘
-            set_alarm(user_id, time_str)
-
-            flex = build_sleep_countdown(
-                sleep_type=pending_sleep_type,
-                sleep_type_info=s_info,
-                start_time=now,
-                wake_time=wake_dt,
-                hours=h,
-                minutes=m,
-            )
-            reply(token, FlexMessage(
-                alt_text=f"{s_info['emoji']} 已開始{pending_sleep_type}，{time_str}叫你起床",
-                contents=FlexContainer.from_dict(flex),
-            ))
-        else:
-            reply(token, TextMessage(text=(
-                "❌ 格式不對，請用 HH:MM\n\n"
-                "例如：\n"
-                "07:30\n"
-                "08:00\n"
-                "22:30"
-            )))
+        reply(token, TextMessage(
+            text=(
+                "❌ 我沒看懂，可以這樣輸入：\n\n"
+                "⏱ 睡多久：\n"
+                "「20分鐘」「1小時」「1小時30分」\n\n"
+                "⏰ 幾點起床：\n"
+                "「07:30」「08:00」\n\n"
+                "或直接選下方快捷："
+            ),
+            quick_reply=_duration_quick_reply(),
+        ))
         return
 
+    # ── 等待精確時間（HH:MM）──
+    if pending_action == "waiting_exact_time":
+        time_str = _parse_time(text)
+        if time_str:
+            clear_pending(user_id)
+            h, m, wake_dt = _calc_from_wake_time(now, time_str)
+            _start_sleep_and_reply(token, user_id, now, pending_sleep_type, h, m, wake_dt)
+        else:
+            reply(token, TextMessage(text="❌ 請輸入 HH:MM 格式，例如：07:30"))
+        return
+
+    # ── 等待鬧鐘時間 ──
     if pending_action == "waiting_alarm_time":
         time_str = _parse_time(text)
         if time_str:
@@ -210,9 +307,24 @@ def handle_message(event):
                 "輸入「取消鬧鐘」可以刪除"
             )))
         else:
-            reply(token, TextMessage(text="❌ 請輸入正確時間格式，例如：07:30"))
+            reply(token, TextMessage(text="❌ 請輸入 HH:MM 格式，例如：07:30"))
         return
 
+    # ── 等待睡前提醒時間 ──
+    if pending_action == "waiting_bedtime_time":
+        time_str = _parse_time(text)
+        if time_str:
+            clear_pending(user_id)
+            set_bedtime_reminder(user_id, time_str)
+            reply(token, TextMessage(text=(
+                f"🌙 睡前提醒設定成功！\n"
+                f"每天 {time_str} 會提醒你準備睡覺 😴"
+            )))
+        else:
+            reply(token, TextMessage(text="❌ 請輸入 HH:MM 格式，例如：22:30"))
+        return
+
+    # ── 完全重設確認 ──
     if pending_action == "confirm_full_reset":
         if text in ["確認重設", "確認", "yes", "YES"]:
             clear_pending(user_id)
@@ -227,6 +339,32 @@ def handle_message(event):
             reply(token, TextMessage(text="✅ 已取消，資料保留完整！"))
         return
 
+    # ════════════════════════════════════════════════════
+    # 自然語言直接觸發睡眠（不需先選類型）
+    # 例如：「我要睡10分鐘」「睡1小時30分」
+    # ════════════════════════════════════════════════════
+    sleep_trigger = re.match(
+        r"^(我要睡|要睡|我想睡|想睡|睡)(.+)$", text
+    )
+    if sleep_trigger:
+        duration_text = sleep_trigger.group(2).strip()
+        minutes = _parse_duration_to_minutes(duration_text)
+        if minutes and minutes > 0:
+            # 根據時長自動判斷睡眠類型
+            if minutes <= 90:
+                sleep_type = "小睡"
+            elif minutes <= 300:
+                sleep_type = "中睡"
+            else:
+                sleep_type = "大睡"
+            h, m, wake_dt = _calc_from_duration(now, minutes)
+            _start_sleep_and_reply(token, user_id, now, sleep_type, h, m, wake_dt)
+            return
+
+    # ════════════════════════════════════════════════════
+    # 標準指令
+    # ════════════════════════════════════════════════════
+
     # ── 主選單 ──
     if text in ["選單", "menu", "Menu", "開始", "start", "嗨", "hi", "Hi", "hello", "Hello"]:
         reply(token, FlexMessage(
@@ -234,60 +372,70 @@ def handle_message(event):
             contents=FlexContainer.from_dict(build_main_menu()),
         ))
 
-    # ── 睡眠類型選擇 ──
-    elif text in ["睡覺", "小睡", "中睡", "大睡"]:
-        if text == "睡覺":
-            # 問選哪種
-            reply(token, TextMessage(
-                text="你要睡哪種覺？😴",
-                quick_reply=_sleep_type_quick_reply(),
-            ))
-        else:
-            s_info = SLEEP_TYPES[text]
-            set_pending(user_id, "waiting_wake_time", sleep_type=text)
-            reply(token, TextMessage(text=(
-                f"{s_info['emoji']} 選擇了【{s_info['label']}】\n\n"
-                f"⏰ 你要幾點起床？\n"
-                f"請輸入時間（24小時制）\n\n"
-                f"例如：07:30"
-            )))
+    # ── 睡覺（選類型）──
+    elif text == "睡覺":
+        reply(token, TextMessage(
+            text="你要睡哪種覺？😴",
+            quick_reply=_sleep_type_quick_reply(),
+        ))
+
+    # ── 三種睡眠類型 ──
+    elif text in ["小睡", "中睡", "大睡"]:
+        s_info = SLEEP_TYPES[text]
+        set_pending(user_id, "waiting_wake_time", sleep_type=text)
+        reply(token, TextMessage(
+            text=(
+                f"{s_info['emoji']} 【{s_info['label']}】\n\n"
+                "想睡多久？或幾點起床？\n\n"
+                "⏱ 直接說時長：\n"
+                "「20分鐘」「1小時30分」「90分鐘」\n\n"
+                "⏰ 或輸入起床時間：\n"
+                "「07:30」「08:00」\n\n"
+                "快捷選項 👇"
+            ),
+            quick_reply=_duration_quick_reply(),
+        ))
 
     # ── 起床 ──
     elif text in ["起床", "醒來", "起床了"]:
         record = get_latest_record(user_id)
         if not record or not record.get("sleep_start"):
-            reply(token, TextMessage(text="❌ 你還沒有開始睡眠計時喔！\n點選單的「小睡/中睡/大睡」開始記錄"))
+            reply(token, TextMessage(text=(
+                "❌ 你還沒有開始睡眠計時喔！\n\n"
+                "點選單或說「我要睡X分鐘」開始記錄"
+            )))
         elif record.get("sleep_end"):
-            reply(token, TextMessage(text="✅ 你今天的睡眠已記錄完畢！\n輸入「今日統計」查看詳情"))
+            reply(token, TextMessage(text="✅ 你今天的睡眠已記錄完畢！\n輸入「統計」查看詳情"))
         else:
             sleep_start = datetime.fromisoformat(record["sleep_start"]).astimezone(TZ)
             end_sleep(user_id, now.isoformat())
-            delete_alarm(user_id)  # 起床後取消鬧鐘
+            delete_alarm(user_id)
             delta = now - sleep_start
-            hours = int(delta.total_seconds() // 3600)
-            minutes = int((delta.total_seconds() % 3600) // 60)
+            total_min = int(delta.total_seconds() / 60)
+            hours = total_min // 60
+            minutes = total_min % 60
             sleep_type = record.get("sleep_type", "大睡")
             s_info = SLEEP_TYPES.get(sleep_type, SLEEP_TYPES["大睡"])
 
-            if hours >= 7:
+            if total_min >= 420:
                 quality, q_emoji = "優良！繼續保持！", "🌟"
-            elif hours >= 4:
+            elif total_min >= 240:
                 quality, q_emoji = "不錯，身體有充電到", "⚡"
-            elif hours >= 1:
+            elif total_min >= 60:
                 quality, q_emoji = "小憩一下，精神好一點了嗎？", "😌"
             else:
-                quality, q_emoji = "睡太短了，有機會補眠吧", "⚠️"
+                quality, q_emoji = "快速補眠完成！", "💪"
 
             reply(token, TextMessage(text=(
-                f"☀️ 早安！起床囉！\n\n"
+                f"☀️ 起床囉！\n\n"
                 f"📊 {sleep_type}報告\n"
                 f"━━━━━━━━━━━━━━\n"
                 f"{s_info['emoji']} 類型：{sleep_type}\n"
                 f"🌙 入睡：{sleep_start.strftime('%H:%M')}\n"
                 f"☀️ 起床：{now.strftime('%H:%M')}\n"
-                f"⏱ 時長：{hours} 小時 {minutes} 分鐘\n"
+                f"⏱ 時長：{hours}小時{minutes:02d}分鐘\n"
                 f"{q_emoji} 評估：{quality}\n\n"
-                f"輸入「今日統計」或「週報告」查看更多"
+                f"輸入「統計」或「週報告」查看更多"
             )))
 
     # ── 今日統計 ──
@@ -296,7 +444,7 @@ def handle_message(event):
         if not record or not record.get("sleep_start"):
             reply(token, TextMessage(text=(
                 "📊 今天還沒有睡眠紀錄\n\n"
-                "點選單選擇「小睡/中睡/大睡」開始記錄 🌙"
+                "說「我要睡1小時」或點選單開始記錄 🌙"
             )))
         else:
             flex = build_sleep_stats(record, now)
@@ -306,7 +454,7 @@ def handle_message(event):
             ))
 
     # ── 週報告 ──
-    elif text in ["週報告", "本週", "週統計", "week"]:
+    elif text in ["週報告", "本週", "週統計"]:
         records = get_week_records(user_id)
         flex = build_week_report(records, now)
         reply(token, FlexMessage(
@@ -314,66 +462,54 @@ def handle_message(event):
             contents=FlexContainer.from_dict(flex),
         ))
 
-    # ── 設定鬧鐘 ──
+    # ── 鬧鐘 ──
     elif text in ["鬧鐘", "設定鬧鐘", "查看鬧鐘"]:
         alarm = get_alarm(user_id)
         if alarm:
             reply(token, TextMessage(text=(
                 f"⏰ 目前鬧鐘：{alarm}\n"
                 f"到時間會連響 3 次！\n\n"
-                "輸入「取消鬧鐘」可以刪除\n"
-                "或輸入新時間重新設定，例如：鬧鐘 07:30"
+                "輸入新時間可重設，例如：鬧鐘 07:30\n"
+                "輸入「取消鬧鐘」刪除"
             )))
         else:
             set_pending(user_id, "waiting_alarm_time")
-            reply(token, TextMessage(text=(
-                "⏰ 設定鬧鐘\n\n"
-                "請輸入起床時間（24小時制）\n"
-                "例如：07:30"
-            )))
+            reply(token, TextMessage(text="⏰ 請輸入起床時間（HH:MM）\n例如：07:30"))
 
     elif text.startswith("鬧鐘 ") or text.startswith("設定鬧鐘 "):
         time_str = _parse_time(text.split()[-1])
         if time_str:
             set_alarm(user_id, time_str)
-            reply(token, TextMessage(text=(
-                f"⏰ 鬧鐘設定成功！\n"
-                f"明天 {time_str} 會連響 3 次叫你起床 💪\n\n"
-                "輸入「取消鬧鐘」可以刪除"
-            )))
+            reply(token, TextMessage(text=f"⏰ 鬧鐘設定成功！{time_str} 連響 3 次 💪"))
         else:
-            reply(token, TextMessage(text="❌ 時間格式錯誤！例如：鬧鐘 07:30"))
+            reply(token, TextMessage(text="❌ 格式錯誤，例如：鬧鐘 07:30"))
 
-    # ── 取消鬧鐘 ──
     elif text in ["取消鬧鐘", "刪除鬧鐘"]:
         delete_alarm(user_id)
         reply(token, TextMessage(text="⏰ 鬧鐘已取消！"))
 
-    # ── 設定睡前提醒 ──
-    elif text.startswith("睡前提醒 ") or text.startswith("就寢提醒 "):
+    # ── 睡前提醒 ──
+    elif text in ["睡前提醒", "就寢提醒", "設定提醒"]:
+        set_pending(user_id, "waiting_bedtime_time")
+        reply(token, TextMessage(text="🌙 請輸入睡前提醒時間（HH:MM）\n例如：22:30"))
+
+    elif re.match(r"^(睡前提醒|就寢提醒)\s+\d{1,2}:\d{2}$", text):
         time_str = _parse_time(text.split()[-1])
         if time_str:
             set_bedtime_reminder(user_id, time_str)
-            reply(token, TextMessage(text=(
-                f"🌙 睡前提醒設定成功！\n"
-                f"每天 {time_str} 會提醒你準備睡覺 😴\n\n"
-                "輸入「取消提醒」可以刪除"
-            )))
-        else:
-            reply(token, TextMessage(text="❌ 時間格式錯誤！例如：睡前提醒 22:30"))
+            reply(token, TextMessage(text=f"🌙 睡前提醒設定成功！每天 {time_str} 提醒你 😴"))
 
-    # ── 取消睡前提醒 ──
     elif text in ["取消提醒", "刪除提醒"]:
         set_bedtime_reminder(user_id, None)
         reply(token, TextMessage(text="🌙 睡前提醒已取消！"))
 
-    # ── 重設功能 ──
+    # ── 重設 ──
     elif text in ["重設", "重新設定", "reset"]:
         reply(token, TextMessage(
             text="🔄 你想重設什麼？",
             quick_reply=QuickReply(items=[
                 QuickReplyItem(action=MessageAction(label="🔄 今日紀錄", text="重設今日")),
-                QuickReplyItem(action=MessageAction(label="⏰ 鬧鐘", text="取消鬧鐘")),
+                QuickReplyItem(action=MessageAction(label="⏰ 鬧鐘",    text="取消鬧鐘")),
                 QuickReplyItem(action=MessageAction(label="🌙 睡前提醒", text="取消提醒")),
                 QuickReplyItem(action=MessageAction(label="⚙️ 所有設定", text="重設設定")),
                 QuickReplyItem(action=MessageAction(label="💥 完全重設", text="完全重設")),
@@ -385,7 +521,7 @@ def handle_message(event):
         clear_pending(user_id)
         reply(token, TextMessage(text=(
             "🔄 今日睡眠紀錄已清除！\n\n"
-            "點選單重新選擇睡眠類型開始計時 😴"
+            "說「我要睡X分鐘」或點選單重新開始 😴"
         )))
 
     elif text in ["重設設定", "清除設定"]:
@@ -404,7 +540,7 @@ def handle_message(event):
             "• 所有睡眠歷史紀錄\n"
             "• 鬧鐘設定\n"
             "• 睡前提醒設定\n\n"
-            "輸入「確認重設」執行，或輸入任何其他內容取消。"
+            "輸入「確認重設」執行，或任意其他文字取消。"
         )))
 
     # ── 睡眠建議 ──
@@ -415,7 +551,7 @@ def handle_message(event):
             contents=FlexContainer.from_dict(flex),
         ))
 
-    # ── 計時狀態 ──
+    # ── 狀態 ──
     elif text in ["狀態", "計時狀態"]:
         record = get_latest_record(user_id)
         flex = build_timer_status(record, now)
@@ -429,40 +565,54 @@ def handle_message(event):
         reply(token, TextMessage(text=(
             "😴 睡眠小幫手 使用說明\n"
             "━━━━━━━━━━━━━━━━━\n\n"
-            "🛌 睡眠類型\n"
-            "「小睡」→ 短暫休息 20-90 分\n"
-            "「中睡」→ 補眠 3-5 小時\n"
-            "「大睡」→ 完整睡眠 7-9 小時\n"
-            "（選完後輸入起床時間）\n\n"
+            "🗣 直接說（最簡單！）\n"
+            "「我要睡20分鐘」→ 直接開始計時\n"
+            "「我要睡1小時30分」→ 自動算起床時間\n"
+            "「我要睡8小時」→ 開始大睡\n\n"
+            "🛌 選睡眠類型\n"
+            "「小睡」/ 「中睡」/ 「大睡」\n"
+            "→ 再選時長或輸入起床時間\n\n"
             "☀️ 起床\n"
             "「起床」→ 結束計時＋看報告\n\n"
             "📊 統計報告\n"
-            "「統計」→ 今天睡眠資料\n"
-            "「週報告」→ 本週睡眠趨勢\n\n"
-            "⏰ 鬧鐘設定\n"
-            "「鬧鐘 07:30」→ 設定鬧鐘\n"
-            "（到時間連響 3 次）\n"
-            "「取消鬧鐘」→ 刪除鬧鐘\n\n"
+            "「統計」→ 今天\n"
+            "「週報告」→ 本週趨勢\n\n"
+            "⏰ 鬧鐘（連響3次）\n"
+            "「鬧鐘 07:30」→ 設定\n"
+            "「取消鬧鐘」→ 刪除\n\n"
             "🌙 睡前提醒\n"
-            "「睡前提醒 22:30」→ 設定提醒\n"
-            "「取消提醒」→ 刪除提醒\n\n"
+            "「睡前提醒」→ 設定\n"
+            "「取消提醒」→ 刪除\n\n"
+            "🔄 重設\n"
+            "「重設」→ 顯示重設選項\n\n"
             "💡 其他\n"
             "「睡眠建議」→ 睡眠小知識\n"
-            "「選單」→ 主選單\n\n"
-            "🔄 重設\n"
-            "「重設」→ 顯示重設選項\n"
-            "「重設今日」→ 清除今天紀錄\n"
-            "「重設設定」→ 清除鬧鐘和提醒\n"
-            "「完全重設」→ 清除所有資料"
-
+            "「選單」→ 主選單"
         )))
 
+    # ── 預設回覆（嘗試解析時長）──
     else:
-        reply(token, TextMessage(text=(
-            "🌙 嗨！我是睡眠小幫手！\n\n"
-            "輸入「選單」查看所有功能\n"
-            "輸入「說明」查看指令列表 😴"
-        )))
+        # 最後嘗試：純時長輸入，視為大睡
+        minutes = _parse_duration_to_minutes(text)
+        if minutes and minutes > 0:
+            if minutes <= 90:
+                sleep_type = "小睡"
+            elif minutes <= 300:
+                sleep_type = "中睡"
+            else:
+                sleep_type = "大睡"
+            h, m, wake_dt = _calc_from_duration(now, minutes)
+            _start_sleep_and_reply(token, user_id, now, sleep_type, h, m, wake_dt)
+        else:
+            reply(token, TextMessage(
+                text=(
+                    "🌙 嗨！我是睡眠小幫手！\n\n"
+                    "你可以直接說：\n"
+                    "「我要睡20分鐘」\n"
+                    "「我要睡1小時30分」\n\n"
+                    "或輸入「選單」查看所有功能 😴"
+                )
+            ))
 
 
 if __name__ == "__main__":
