@@ -16,9 +16,8 @@ from apscheduler.schedulers.background import BackgroundScheduler
 import pytz
 
 from db import (
-    init_db, start_sleep, end_sleep, get_latest_record, get_today_records, get_week_records,
-    set_alarm, set_alarm_repeat, update_latest_open_sleep_target,
-    get_alarm_settings, delete_alarm, set_bedtime_reminder,
+    init_db, start_sleep, end_sleep, get_latest_record, get_week_records,
+    set_alarm, get_alarm, delete_alarm, set_bedtime_reminder,
     get_bedtime_reminder, get_all_alarms, get_all_bedtime_reminders,
     set_pending, get_pending, clear_pending,
     increment_alarm_count, reset_alarm_count,
@@ -300,9 +299,8 @@ def _set_wake_for_running_sleep_and_reply(token, user_id, now, sleep_type, hours
         _start_sleep_and_reply(token, user_id, now, sleep_type, hours, minutes, wake_dt)
         return
 
-    start_time = datetime.fromisoformat(record["sleep_start"]).astimezone(TZ)
-    update_latest_open_sleep_target(user_id, wake_str, sleep_type)
-    set_alarm(user_id, wake_str, 1)
+    # 更新起床時間（Firestore: end_sleep 會在起床時更新）
+    set_alarm(user_id, wake_str)
     flex = build_sleep_countdown(
         sleep_type=sleep_type,
         sleep_type_info=s_info,
@@ -479,17 +477,7 @@ def handle_message(event):
             reply(token, TextMessage(text="✅ 已取消設定"))
         return
 
-    if pending_action != "waiting_alarm_repeat" and _is_alarm_repeat_command(text):
-        repeat_total = _parse_repeat_count(text)
-        if repeat_total and set_alarm_repeat(user_id, repeat_total):
-            alarm = get_alarm_settings(user_id)
-            reply(token, TextMessage(text=(
-                f"⏰ 已更新鬧鐘通知次數！\n"
-                f"{alarm['alarm_time']} 會通知 {repeat_total} 次"
-            )))
-        else:
-            reply(token, TextMessage(text="目前沒有可更新的鬧鐘，請先設定鬧鐘。"))
-        return
+
 
     # ── 等待輸入起床方式（時間 or 時長）──
     if pending_action == "waiting_wake_time":
@@ -674,7 +662,7 @@ def handle_message(event):
 
     # ── 睡覺（選類型）──
     elif text in ["睡覺", "開始睡覺", "我要開始睡覺"]:
-        alarm = get_alarm_settings(user_id)
+        alarm = get_alarm(user_id)
         record = get_latest_record(user_id)
         has_running_sleep = record and record.get("sleep_start") and not record.get("sleep_end")
         if alarm and alarm.get("alarm_time") and not has_running_sleep:
@@ -763,7 +751,7 @@ def handle_message(event):
 
     # ── 今日統計 ──
     elif text in ["今日統計", "今天", "統計", "紀錄"]:
-        records = get_today_records(user_id)
+        records = [get_latest_record(user_id)] if get_latest_record(user_id) else []
         if not records:
             reply(token, TextMessage(text=(
                 "📊 今天還沒有睡眠紀錄\n\n"
@@ -794,7 +782,7 @@ def handle_message(event):
         ))
 
     elif text in ["鬧鐘", "查看鬧鐘"]:
-        alarm = get_alarm_settings(user_id)
+        alarm = get_alarm(user_id)
         if alarm and alarm.get("alarm_time"):
             reply(token, TextMessage(
                 text=(
