@@ -21,8 +21,10 @@ def init_db():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id TEXT NOT NULL,
             date TEXT NOT NULL,
+            sleep_type TEXT,
             sleep_start TEXT,
             sleep_end TEXT,
+            target_wake TEXT,
             UNIQUE(user_id, date)
         )
     """)
@@ -30,7 +32,10 @@ def init_db():
         CREATE TABLE IF NOT EXISTS user_settings (
             user_id TEXT PRIMARY KEY,
             alarm_time TEXT,
-            bedtime_reminder TEXT
+            alarm_count INTEGER DEFAULT 0,
+            bedtime_reminder TEXT,
+            pending_action TEXT,
+            pending_sleep_type TEXT
         )
     """)
     conn.commit()
@@ -43,23 +48,25 @@ def _today_str():
     return datetime.now(TZ).strftime("%Y-%m-%d")
 
 
-def start_sleep(user_id: str, iso_time: str):
+def start_sleep(user_id: str, iso_time: str, sleep_type: str = "大睡", target_wake: str = None):
     date = datetime.fromisoformat(iso_time).astimezone(TZ).strftime("%Y-%m-%d")
     conn = get_conn()
     c = conn.cursor()
     c.execute("""
-        INSERT INTO sleep_records (user_id, date, sleep_start)
-        VALUES (?, ?, ?)
+        INSERT INTO sleep_records (user_id, date, sleep_type, sleep_start, target_wake)
+        VALUES (?, ?, ?, ?, ?)
         ON CONFLICT(user_id, date)
-        DO UPDATE SET sleep_start=excluded.sleep_start, sleep_end=NULL
-    """, (user_id, date, iso_time))
+        DO UPDATE SET
+            sleep_type=excluded.sleep_type,
+            sleep_start=excluded.sleep_start,
+            target_wake=excluded.target_wake,
+            sleep_end=NULL
+    """, (user_id, date, sleep_type, iso_time, target_wake))
     conn.commit()
     conn.close()
 
 
 def end_sleep(user_id: str, iso_time: str):
-    date = _today_str()
-    # If sleeping after midnight, the record might be from yesterday
     conn = get_conn()
     c = conn.cursor()
     c.execute("""
@@ -71,10 +78,9 @@ def end_sleep(user_id: str, iso_time: str):
     conn.close()
 
 
-def get_today_record(user_id: str):
+def get_latest_record(user_id: str):
     conn = get_conn()
     c = conn.cursor()
-    # Get the most recent unfinished OR today's record
     c.execute("""
         SELECT * FROM sleep_records
         WHERE user_id=?
@@ -82,9 +88,7 @@ def get_today_record(user_id: str):
     """, (user_id,))
     row = c.fetchone()
     conn.close()
-    if row:
-        return dict(row)
-    return None
+    return dict(row) if row else None
 
 
 def get_week_records(user_id: str):
@@ -110,11 +114,41 @@ def _ensure_settings(cursor, user_id):
     """, (user_id,))
 
 
+def set_pending(user_id: str, action: str, sleep_type: str = None):
+    conn = get_conn()
+    c = conn.cursor()
+    _ensure_settings(c, user_id)
+    c.execute("""
+        UPDATE user_settings SET pending_action=?, pending_sleep_type=? WHERE user_id=?
+    """, (action, sleep_type, user_id))
+    conn.commit()
+    conn.close()
+
+
+def get_pending(user_id: str):
+    conn = get_conn()
+    c = conn.cursor()
+    c.execute("SELECT pending_action, pending_sleep_type FROM user_settings WHERE user_id=?", (user_id,))
+    row = c.fetchone()
+    conn.close()
+    if row:
+        return row["pending_action"], row["pending_sleep_type"]
+    return None, None
+
+
+def clear_pending(user_id: str):
+    conn = get_conn()
+    c = conn.cursor()
+    c.execute("UPDATE user_settings SET pending_action=NULL, pending_sleep_type=NULL WHERE user_id=?", (user_id,))
+    conn.commit()
+    conn.close()
+
+
 def set_alarm(user_id: str, time_str: str):
     conn = get_conn()
     c = conn.cursor()
     _ensure_settings(c, user_id)
-    c.execute("UPDATE user_settings SET alarm_time=? WHERE user_id=?", (time_str, user_id))
+    c.execute("UPDATE user_settings SET alarm_time=?, alarm_count=0 WHERE user_id=?", (time_str, user_id))
     conn.commit()
     conn.close()
 
@@ -131,7 +165,7 @@ def get_alarm(user_id: str):
 def delete_alarm(user_id: str):
     conn = get_conn()
     c = conn.cursor()
-    c.execute("UPDATE user_settings SET alarm_time=NULL WHERE user_id=?", (user_id,))
+    c.execute("UPDATE user_settings SET alarm_time=NULL, alarm_count=0 WHERE user_id=?", (user_id,))
     conn.commit()
     conn.close()
 
@@ -155,17 +189,31 @@ def get_bedtime_reminder(user_id: str):
 
 
 def get_all_alarms():
-    """Return list of (user_id, alarm_time) for all users with alarm set"""
     conn = get_conn()
     c = conn.cursor()
-    c.execute("SELECT user_id, alarm_time FROM user_settings WHERE alarm_time IS NOT NULL")
+    c.execute("SELECT user_id, alarm_time, alarm_count FROM user_settings WHERE alarm_time IS NOT NULL")
     rows = c.fetchall()
     conn.close()
-    return [(r["user_id"], r["alarm_time"]) for r in rows]
+    return [(r["user_id"], r["alarm_time"], r["alarm_count"]) for r in rows]
+
+
+def increment_alarm_count(user_id: str):
+    conn = get_conn()
+    c = conn.cursor()
+    c.execute("UPDATE user_settings SET alarm_count = alarm_count + 1 WHERE user_id=?", (user_id,))
+    conn.commit()
+    conn.close()
+
+
+def reset_alarm_count(user_id: str):
+    conn = get_conn()
+    c = conn.cursor()
+    c.execute("UPDATE user_settings SET alarm_count=0 WHERE user_id=?", (user_id,))
+    conn.commit()
+    conn.close()
 
 
 def get_all_bedtime_reminders():
-    """Return list of (user_id, bedtime_reminder) for all users with reminder set"""
     conn = get_conn()
     c = conn.cursor()
     c.execute("SELECT user_id, bedtime_reminder FROM user_settings WHERE bedtime_reminder IS NOT NULL")
