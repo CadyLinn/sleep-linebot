@@ -287,7 +287,7 @@ def _calc_from_wake_time(now: datetime, wake_time_str: str):
     if wake <= now:
         wake += timedelta(days=1)
     delta = wake - now
-    total_min = int(delta.total_seconds() / 60)
+    total_min = max(int((delta.total_seconds() + 59) // 60), 0)
     return total_min // 60, total_min % 60, wake
 
 
