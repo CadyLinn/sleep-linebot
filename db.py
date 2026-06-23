@@ -99,6 +99,35 @@ def start_sleep(user_id: str, iso_time: str, sleep_type: str = "大睡", target_
     conn.close()
 
 
+def update_latest_open_sleep_target(user_id: str, target_wake: str, sleep_type: str = None):
+    conn = get_conn()
+    c = conn.cursor()
+    if sleep_type:
+        c.execute("""
+            UPDATE sleep_records
+            SET target_wake=?, sleep_type=?
+            WHERE id = (
+                SELECT id FROM sleep_records
+                WHERE user_id=? AND sleep_end IS NULL
+                ORDER BY sleep_start DESC, id DESC LIMIT 1
+            )
+        """, (target_wake, sleep_type, user_id))
+    else:
+        c.execute("""
+            UPDATE sleep_records
+            SET target_wake=?
+            WHERE id = (
+                SELECT id FROM sleep_records
+                WHERE user_id=? AND sleep_end IS NULL
+                ORDER BY sleep_start DESC, id DESC LIMIT 1
+            )
+        """, (target_wake, user_id))
+    conn.commit()
+    changed = c.rowcount
+    conn.close()
+    return changed > 0
+
+
 def end_sleep(user_id: str, iso_time: str):
     conn = get_conn()
     c = conn.cursor()
@@ -231,6 +260,22 @@ def set_alarm(user_id: str, time_str: str, repeat_total: int = 3):
     """, (time_str, repeat_total, user_id))
     conn.commit()
     conn.close()
+
+
+def set_alarm_repeat(user_id: str, repeat_total: int):
+    repeat_total = max(1, min(int(repeat_total or 1), 10))
+    conn = get_conn()
+    c = conn.cursor()
+    _ensure_settings(c, user_id)
+    c.execute("""
+        UPDATE user_settings
+        SET alarm_repeat_total=?, alarm_count=0, alarm_last_trigger_date=NULL
+        WHERE user_id=? AND alarm_time IS NOT NULL
+    """, (repeat_total, user_id))
+    conn.commit()
+    changed = c.rowcount
+    conn.close()
+    return changed > 0
 
 
 def get_alarm(user_id: str):
