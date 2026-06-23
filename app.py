@@ -292,6 +292,27 @@ def _calc_from_duration(now: datetime, total_minutes: int):
     return h, m, wake
 
 
+def _sleep_until_result_message(now: datetime, wake_dt: datetime, hours: int, minutes: int):
+    total_min = hours * 60 + minutes
+    sleep_type = _auto_sleep_type(total_min)
+    s_info = SLEEP_TYPES[sleep_type]
+    duration_text = f"{hours}小時{minutes:02d}分" if hours else f"{minutes}分鐘"
+    return (
+        f"現在是 {now.strftime('%H:%M')}。\n"
+        f"如果 {wake_dt.strftime('%H:%M')} 起床，還可以睡 {duration_text}。\n\n"
+        f"系統會歸類為{s_info['emoji']} {sleep_type}。"
+    )
+
+
+def _sleep_until_quick_reply(wake_dt: datetime):
+    wake_text = wake_dt.strftime("%H:%M")
+    return QuickReply(items=[
+        QuickReplyItem(action=MessageAction(label="開始記錄", text=f"開始睡到 {wake_text} 起床")),
+        QuickReplyItem(action=MessageAction(label="只設鬧鐘", text=f"鬧鐘 {wake_text}")),
+        QuickReplyItem(action=MessageAction(label="選單", text="選單")),
+    ])
+
+
 def _auto_sleep_type(total_minutes: int) -> str:
     """根據實際睡眠時長自動判斷類型"""
     if total_minutes <= 90:
@@ -464,7 +485,7 @@ GLOBAL_COMMANDS = {
     "開始睡覺", "我要開始睡覺", "睡覺", "小睡", "中睡", "大睡", "起床", "醒來", "起床了",
     "今日統計", "今天", "統計", "紀錄", "週報告", "本週", "週統計",
     "鬧鐘", "設定鬧鐘", "查看鬧鐘", "重新設定鬧鐘",
-    "睡眠建議", "建議", "tips", "小知識", "狀態", "計時狀態",
+    "睡眠建議", "建議", "tips", "小知識", "算可睡多久", "狀態", "計時狀態",
     "說明", "幫助", "help", "Help", "指令", "重設", "重新設定", "reset",
 }
 
@@ -482,7 +503,7 @@ def _is_global_command(text):
     return any(
         keyword in clean
         for keyword in [
-            "開始睡覺", "今日統計", "週報告", "睡眠建議",
+            "開始睡覺", "今日統計", "週報告", "睡眠建議", "算可睡多久",
             "選單", "起床", "查看鬧鐘", "取消鬧鐘", "重新設定鬧鐘",
         ]
     )
@@ -656,6 +677,31 @@ def handle_message(event):
             )))
         return
 
+    if pending_action == "waiting_sleep_until_time":
+        wake_time_str = _parse_clock_time(text)
+        if wake_time_str:
+            clear_pending(user_id)
+            h, m, wake_dt = _calc_from_wake_time(now, wake_time_str)
+            reply(token, TextMessage(
+                text=_sleep_until_result_message(now, wake_dt, h, m),
+                quick_reply=_sleep_until_quick_reply(wake_dt),
+            ))
+        else:
+            reply(token, TextMessage(
+                text=(
+                    "請輸入你想幾點起床，例如：\n"
+                    "07:30\n"
+                    "0730\n"
+                    "7點半"
+                ),
+                quick_reply=QuickReply(items=[
+                    QuickReplyItem(action=MessageAction(label="07:30", text="07:30")),
+                    QuickReplyItem(action=MessageAction(label="08:00", text="08:00")),
+                    QuickReplyItem(action=MessageAction(label="取消", text="取消")),
+                ]),
+            ))
+        return
+
     # ── 完全重設確認 ──
     if pending_action == "confirm_full_reset":
         if text in ["確認重設", "確認", "yes", "YES"]:
@@ -706,21 +752,9 @@ def handle_message(event):
     wake_time_str = _parse_sleep_until_request(text)
     if wake_time_str:
         h, m, wake_dt = _calc_from_wake_time(now, wake_time_str)
-        total_min = h * 60 + m
-        sleep_type = _auto_sleep_type(total_min)
-        s_info = SLEEP_TYPES[sleep_type]
-        duration_text = f"{h}小時{m:02d}分" if h else f"{m}分鐘"
         reply(token, TextMessage(
-            text=(
-                f"現在是 {now.strftime('%H:%M')}。\n"
-                f"如果 {wake_dt.strftime('%H:%M')} 起床，還可以睡 {duration_text}。\n\n"
-                f"系統會歸類為{s_info['emoji']} {sleep_type}。"
-            ),
-            quick_reply=QuickReply(items=[
-                QuickReplyItem(action=MessageAction(label="開始記錄", text=f"開始睡到 {wake_dt.strftime('%H:%M')} 起床")),
-                QuickReplyItem(action=MessageAction(label="只設鬧鐘", text=f"鬧鐘 {wake_dt.strftime('%H:%M')}")),
-                QuickReplyItem(action=MessageAction(label="選單", text="選單")),
-            ]),
+            text=_sleep_until_result_message(now, wake_dt, h, m),
+            quick_reply=_sleep_until_quick_reply(wake_dt),
         ))
         return
 
@@ -983,9 +1017,33 @@ def handle_message(event):
     # ── 睡眠建議 ──
     elif text in ["睡眠建議", "建議", "tips", "小知識"]:
         flex = build_sleep_tips()
-        reply(token, FlexMessage(
-            alt_text="睡眠小知識",
-            contents=FlexContainer.from_dict(flex),
+        reply(token, [
+            FlexMessage(
+                alt_text="睡眠小知識",
+                contents=FlexContainer.from_dict(flex),
+            ),
+            TextMessage(
+                text="也可以計算現在睡到某個時間，還能睡多久。",
+                quick_reply=QuickReply(items=[
+                    QuickReplyItem(action=MessageAction(label="算可睡多久", text="算可睡多久")),
+                    QuickReplyItem(action=MessageAction(label="07:30起床", text="現在睡 07:30 起床")),
+                    QuickReplyItem(action=MessageAction(label="08:00起床", text="現在睡 08:00 起床")),
+                ]),
+            ),
+        ])
+
+    elif text in ["算可睡多久", "計算可睡多久", "睡多久計算"]:
+        set_pending(user_id, "waiting_sleep_until_time")
+        reply(token, TextMessage(
+            text=(
+                "你想幾點起床？\n\n"
+                "請輸入例如：07:30、0730、7點半"
+            ),
+            quick_reply=QuickReply(items=[
+                QuickReplyItem(action=MessageAction(label="07:30", text="07:30")),
+                QuickReplyItem(action=MessageAction(label="08:00", text="08:00")),
+                QuickReplyItem(action=MessageAction(label="取消", text="取消")),
+            ]),
         ))
 
     # ── 狀態 ──
