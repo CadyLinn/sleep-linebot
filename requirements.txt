@@ -3,3 +3,4 @@ flask==3.*
 apscheduler==3.*
 pytz
 gunicorn
+google-cloud-firestore
