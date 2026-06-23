@@ -152,64 +152,105 @@ def build_main_menu():
 
 def build_sleep_countdown(sleep_type, sleep_type_info, start_time, wake_time, hours, minutes):
     emoji = sleep_type_info["emoji"]
-    bar_pct = min(int((hours / (sleep_type_info["suggestion_hours"] or 8)) * 100), 100)
-    bar_pct = max(bar_pct, 1)
+    total_minutes = hours * 60 + minutes
+    suggestion_min = max(int(sleep_type_info["suggestion_hours"] * 60), 1)
+    bar_pct = max(min(int(total_minutes / suggestion_min * 100), 100), 1)
 
-    if hours >= 7:
-        quality_tip = "非常充足 🌟 好好享受！"
-        color = MINT
-    elif hours >= 4:
-        quality_tip = "補眠效果不錯 ⚡"
-        color = YELLOW
-    elif hours >= 1:
-        quality_tip = "短暫休息，恢復體力 😌"
-        color = VIOLET
+    if total_minutes >= 420:
+        quality_tip, color = "非常充足 🌟 好好享受！", MINT
+    elif total_minutes >= 180:
+        quality_tip, color = "補眠效果不錯 ⚡", YELLOW
+    elif total_minutes >= 20:
+        quality_tip, color = "短暫休息，恢復體力 😌", VIOLET
     else:
-        quality_tip = "時間很短，善用小睡！"
-        color = CORAL
+        quality_tip, color = "超短衝刺睡眠 ⚡", CORAL
+
+    # 時長文字（10分鐘不顯示「0小時」）
+    if hours > 0 and minutes > 0:
+        dur_text = f"{hours}h {minutes}m"
+    elif hours > 0:
+        dur_text = f"{hours} 小時"
+    else:
+        dur_text = f"{minutes} 分鐘"
 
     return {
         "type": "bubble", "size": "mega",
-        "header": _header(f"{emoji} 已開始{sleep_type}！", start_time.strftime("%H:%M 入睡")),
+        "header": {
+            "type": "box", "layout": "vertical",
+            "backgroundColor": NAVY, "paddingAll": "16px",
+            "contents": [
+                {"type": "text", "text": f"{emoji} 已開始{sleep_type}！",
+                 "color": WHITE, "size": "lg", "weight": "bold"},
+                # 入睡時間 → 起床時間
+                {
+                    "type": "box", "layout": "horizontal",
+                    "margin": "lg", "spacing": "none",
+                    "contents": [
+                        {
+                            "type": "box", "layout": "vertical",
+                            "flex": 1, "alignItems": "center",
+                            "contents": [
+                                {"type": "text", "text": "🌙 入睡",
+                                 "size": "xs", "color": GRAY, "align": "center"},
+                                {"type": "text", "text": start_time.strftime("%H:%M"),
+                                 "size": "3xl", "color": VIOLET, "weight": "bold",
+                                 "align": "center", "margin": "xs"},
+                            ],
+                        },
+                        {
+                            "type": "box", "layout": "vertical",
+                            "flex": 1, "alignItems": "center", "justifyContent": "center",
+                            "contents": [
+                                {"type": "text", "text": "▶▶",
+                                 "size": "xs", "color": GRAY, "align": "center"},
+                                {"type": "text", "text": dur_text,
+                                 "size": "xs", "color": color, "weight": "bold",
+                                 "align": "center", "margin": "xs"},
+                            ],
+                        },
+                        {
+                            "type": "box", "layout": "vertical",
+                            "flex": 1, "alignItems": "center",
+                            "contents": [
+                                {"type": "text", "text": "☀️ 起床",
+                                 "size": "xs", "color": GRAY, "align": "center"},
+                                {"type": "text", "text": wake_time.strftime("%H:%M"),
+                                 "size": "3xl", "color": MINT, "weight": "bold",
+                                 "align": "center", "margin": "xs"},
+                            ],
+                        },
+                    ],
+                },
+            ],
+        },
         "body": {
             "type": "box", "layout": "vertical",
             "backgroundColor": INDIGO, "paddingAll": "16px", "spacing": "md",
             "contents": [
-                {
-                    "type": "box", "layout": "horizontal",
-                    "contents": [
-                        {"type": "text", "text": "⏰ 起床時間", "size": "sm", "color": GRAY, "flex": 2},
-                        {"type": "text", "text": wake_time.strftime("%H:%M"), "size": "xl",
-                         "color": WHITE, "weight": "bold", "align": "end", "flex": 3},
-                    ],
-                },
-                {
-                    "type": "box", "layout": "horizontal",
-                    "contents": [
-                        {"type": "text", "text": "💤 可睡時間", "size": "sm", "color": GRAY, "flex": 2},
-                        {"type": "text", "text": f"{hours} 小時 {minutes} 分鐘",
-                         "size": "lg", "color": color, "weight": "bold", "align": "end", "flex": 3},
-                    ],
-                },
-                {"type": "separator", "color": "#2D3748"},
-                {"type": "text", "text": quality_tip, "size": "sm", "color": color, "align": "center"},
+                {"type": "text", "text": quality_tip,
+                 "size": "sm", "color": color, "align": "center", "weight": "bold"},
                 {
                     "type": "box", "layout": "horizontal", "margin": "sm",
                     "contents": [
                         {"type": "box", "layout": "vertical", "backgroundColor": color,
-                         "height": "8px", "cornerRadius": "4px", "flex": bar_pct, "contents": []},
+                         "height": "8px", "cornerRadius": "4px",
+                         "flex": bar_pct, "contents": []},
                         {"type": "box", "layout": "vertical", "backgroundColor": "#2D3748",
-                         "height": "8px", "cornerRadius": "4px", "flex": max(100 - bar_pct, 1), "contents": []},
+                         "height": "8px", "cornerRadius": "4px",
+                         "flex": max(100 - bar_pct, 1), "contents": []},
                     ],
                 },
                 {"type": "separator", "color": "#2D3748"},
-                {"type": "text", "text": f"⏰ 鬧鐘已設定：{wake_time.strftime('%H:%M')} 連響 3 次",
+                {"type": "text",
+                 "text": f"⏰ 鬧鐘：{wake_time.strftime('%H:%M')} 連響 3 次",
                  "size": "xs", "color": GRAY, "align": "center"},
-                {"type": "text", "text": "起床時輸入「起床」記錄睡眠 ☀️",
+                {"type": "text", "text": "起床後輸入「起床」記錄睡眠 ☀️",
                  "size": "xs", "color": GRAY, "align": "center"},
             ],
         },
     }
+
+
 
 
 # ── Sleep Stats (Today) ────────────────────────────────────────────────────

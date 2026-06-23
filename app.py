@@ -217,16 +217,20 @@ def _sleep_type_quick_reply():
     ])
 
 
-def _duration_quick_reply():
-    """起床時間輸入的快速選項"""
-    return QuickReply(items=[
-        QuickReplyItem(action=MessageAction(label="20分鐘", text="20分鐘")),
-        QuickReplyItem(action=MessageAction(label="30分鐘", text="30分鐘")),
-        QuickReplyItem(action=MessageAction(label="1小時", text="1小時")),
-        QuickReplyItem(action=MessageAction(label="1.5小時", text="1.5小時")),
-        QuickReplyItem(action=MessageAction(label="2小時", text="2小時")),
-        QuickReplyItem(action=MessageAction(label="指定時間", text="指定起床時間")),
-    ])
+def _duration_quick_reply(now=None):
+    """快捷按鈕：分鐘選項 + 指定時間"""
+    now_str = f"（現在 {now.strftime('%H:%M')}）" if now else ""
+    items = [
+        QuickReplyItem(action=MessageAction(label="⚡ 10分鐘",  text="10分鐘")),
+        QuickReplyItem(action=MessageAction(label="💤 20分鐘",  text="20分鐘")),
+        QuickReplyItem(action=MessageAction(label="😪 30分鐘",  text="30分鐘")),
+        QuickReplyItem(action=MessageAction(label="😴 45分鐘",  text="45分鐘")),
+        QuickReplyItem(action=MessageAction(label="🛌 1小時",   text="1小時")),
+        QuickReplyItem(action=MessageAction(label="🛌 1.5小時", text="1.5小時")),
+        QuickReplyItem(action=MessageAction(label="🛌 2小時",   text="2小時")),
+        QuickReplyItem(action=MessageAction(label="⏰ 指定起床時間", text="指定起床時間")),
+    ]
+    return QuickReply(items=items)
 
 
 # ── Message Handler ─────────────────────────────────────────────────────────
@@ -271,16 +275,18 @@ def handle_message(event):
             _start_sleep_and_reply(token, user_id, now, pending_sleep_type, h, m, wake_dt)
             return
 
+    # pending waiting_wake_time 的錯誤提示也需要傳 now
         reply(token, TextMessage(
             text=(
-                "❌ 我沒看懂，可以這樣輸入：\n\n"
-                "⏱ 睡多久：\n"
-                "「20分鐘」「1小時」「1小時30分」\n\n"
+                f"❌ 我沒看懂，現在是 {now.strftime('%H:%M')}\n\n"
+                "可以這樣輸入：\n\n"
+                "⏱ 睡多久（自動算起床時間）：\n"
+                "「10分鐘」「30分鐘」「1小時30分」\n\n"
                 "⏰ 幾點起床：\n"
                 "「07:30」「08:00」\n\n"
-                "或直接選下方快捷："
+                "或直接選下方快捷 👇"
             ),
-            quick_reply=_duration_quick_reply(),
+            quick_reply=_duration_quick_reply(now),
         ))
         return
 
@@ -386,14 +392,10 @@ def handle_message(event):
         reply(token, TextMessage(
             text=(
                 f"{s_info['emoji']} 【{s_info['label']}】\n\n"
-                "想睡多久？或幾點起床？\n\n"
-                "⏱ 直接說時長：\n"
-                "「20分鐘」「1小時30分」「90分鐘」\n\n"
-                "⏰ 或輸入起床時間：\n"
-                "「07:30」「08:00」\n\n"
-                "快捷選項 👇"
+                f"🕐 現在是 {now.strftime('%H:%M')}\n\n"
+                "想睡多久？或幾點起床？👇"
             ),
-            quick_reply=_duration_quick_reply(),
+            quick_reply=_duration_quick_reply(now),
         ))
 
     # ── 起床 ──
