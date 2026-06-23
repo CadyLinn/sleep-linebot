@@ -42,7 +42,7 @@ TZ = pytz.timezone("Asia/Taipei")
 
 # 睡眠類型定義
 SLEEP_TYPES = {
-    "小睡": {"emoji": "💤", "label": "小睡（20-90分鐘）", "suggestion_hours": 0.5},
+    "小睡": {"emoji": "💤", "label": "小睡（10-90分鐘）", "suggestion_hours": 0.5},
     "中睡": {"emoji": "😴", "label": "中睡（3-5小時）",   "suggestion_hours": 4},
     "大睡": {"emoji": "🛌", "label": "大睡（7-9小時）",   "suggestion_hours": 8},
 }

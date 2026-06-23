@@ -431,7 +431,7 @@ def build_week_report(records, now):
         },
         "footer": {
             "type": "box", "layout": "vertical", "backgroundColor": NAVY, "paddingAll": "10px",
-            "contents": [{"type": "text", "text": "🟢 ≥7h 大睡　🟡 4-7h 中睡　🔴 <4h 小睡",
+            "contents": [{"type": "text", "text": "🟢 ≥7h 大睡　🟡 3-5h 中睡　🔴 10-90m 小睡",
                           "size": "xxs", "color": GRAY, "align": "center", "wrap": True}],
         },
     }
@@ -445,7 +445,7 @@ TIPS = [
     ("☕ 下午後避免咖啡因", "咖啡因在身體留存約 6-8 小時"),
     ("🧘 建立睡前儀式", "洗澡、冥想、閱讀，讓身體準備好睡覺"),
     ("⏰ 固定作息時間", "每天同一時間起床，建立穩定生理時鐘"),
-    ("💤 善用小睡", "20分鐘小睡可大幅提升下午的專注力"),
+    ("💤 善用小睡", "10-90分鐘小睡可幫助恢復精神與專注力"),
 ]
 
 
