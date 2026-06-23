@@ -157,3 +157,7 @@ Sleep Line Bot is a LINE Messaging API bot for sleep tracking, wake-up alarms, s
 睡眠週期
 說明
 ```
+
+## 📝 授權
+
+個人專案，請依 [LICENSE](LICENSE) 授權使用。
