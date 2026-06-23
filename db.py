@@ -49,7 +49,7 @@ def start_sleep(user_id: str, iso_time: str, sleep_type: str = "大睡", target_
     })
 
 
-def end_sleep(user_id: str, iso_time: str):
+def end_sleep(user_id: str, iso_time: str, sleep_type: str = None):
     """結束最近一筆未結束的睡眠紀錄"""
     open_docs = []
     for doc in _records_col().where("user_id", "==", user_id).stream():
@@ -58,7 +58,10 @@ def end_sleep(user_id: str, iso_time: str):
             open_docs.append((doc, record))
     if open_docs:
         latest_doc, _ = max(open_docs, key=lambda item: _record_start(item[1]))
-        latest_doc.reference.update({"sleep_end": iso_time})
+        fields = {"sleep_end": iso_time}
+        if sleep_type:
+            fields["sleep_type"] = sleep_type
+        latest_doc.reference.update(fields)
 
 
 def get_latest_record(user_id: str):

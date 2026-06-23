@@ -861,19 +861,21 @@ def handle_message(event):
             reply(token, TextMessage(text="✅ 你今天的睡眠已記錄完畢！\n輸入「統計」查看詳情"))
         else:
             sleep_start = datetime.fromisoformat(record["sleep_start"]).astimezone(TZ)
-            end_sleep(user_id, now.isoformat())
-            delete_alarm(user_id)
             delta = now - sleep_start
             total_min = int(delta.total_seconds() / 60)
             hours = total_min // 60
             minutes = total_min % 60
-            sleep_type = record.get("sleep_type", "大睡")
+            sleep_type = _auto_sleep_type(total_min)
             s_info = SLEEP_TYPES.get(sleep_type, SLEEP_TYPES["大睡"])
+            end_sleep(user_id, now.isoformat(), sleep_type=sleep_type)
+            delete_alarm(user_id)
 
-            if total_min >= 420:
+            if sleep_type == "大睡" and total_min >= 420:
                 quality, q_emoji = "優良！繼續保持！", "🌟"
-            elif total_min >= 240:
+            elif sleep_type in ["中睡", "大睡"] and total_min >= 240:
                 quality, q_emoji = "不錯，身體有充電到", "⚡"
+            elif sleep_type == "小睡":
+                quality, q_emoji = "小睡完成，短暫補眠已記錄", "😌"
             elif total_min >= 60:
                 quality, q_emoji = "小憩一下，精神好一點了嗎？", "😌"
             else:
