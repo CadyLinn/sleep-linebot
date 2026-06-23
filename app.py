@@ -133,6 +133,44 @@ def _parse_time(text: str):
     return None
 
 
+def _parse_clock_time(text: str):
+    """解析常見時鐘格式：07:30、0730、7點、7點半、7點30分。"""
+    compact = re.sub(r"\s+", "", text.strip())
+    match = re.search(r"(\d{1,2}:\d{2})", compact)
+    if match:
+        return _parse_time(match.group(1))
+
+    match = re.search(r"(?<!\d)(\d{3,4})(?!\d)", compact)
+    if match:
+        raw = match.group(1).zfill(4)
+        return _parse_time(raw)
+
+    match = re.search(r"(\d{1,2})點半", compact)
+    if match:
+        hour = int(match.group(1))
+        if 0 <= hour <= 23:
+            return f"{hour:02d}:30"
+
+    match = re.search(r"(\d{1,2})點(?:(\d{1,2})分?)?", compact)
+    if match:
+        hour = int(match.group(1))
+        minute = int(match.group(2) or 0)
+        if 0 <= hour <= 23 and 0 <= minute <= 59:
+            return f"{hour:02d}:{minute:02d}"
+
+    return None
+
+
+def _parse_sleep_until_request(text: str):
+    """解析「現在睡到 07:30 起床」這類可睡時間試算。"""
+    clean = text.strip()
+    if not any(keyword in clean for keyword in ["起床", "醒來", "睡到", "可以睡"]):
+        return None
+    if not any(keyword in clean for keyword in ["現在", "睡", "起床", "醒來", "可以睡"]):
+        return None
+    return _parse_clock_time(clean)
+
+
 def _parse_duration_to_minutes(text: str):
     """
     解析自然語言時長，回傳分鐘數（int）或 None。
@@ -654,6 +692,57 @@ def handle_message(event):
             h, m, wake_dt = _calc_from_duration(now, minutes)
             _start_sleep_and_reply(token, user_id, now, sleep_type, h, m, wake_dt)
             return
+
+    start_until_match = re.match(r"^(開始睡到|我要睡到|要睡到|睡到)\s*(.+)$", text)
+    if start_until_match and "可以睡" not in text:
+        wake_time_str = _parse_clock_time(start_until_match.group(2))
+        if wake_time_str:
+            h, m, wake_dt = _calc_from_wake_time(now, wake_time_str)
+            total_min = h * 60 + m
+            sleep_type = _auto_sleep_type(total_min)
+            _start_sleep_and_reply(token, user_id, now, sleep_type, h, m, wake_dt)
+            return
+
+    wake_time_str = _parse_sleep_until_request(text)
+    if wake_time_str:
+        h, m, wake_dt = _calc_from_wake_time(now, wake_time_str)
+        total_min = h * 60 + m
+        sleep_type = _auto_sleep_type(total_min)
+        s_info = SLEEP_TYPES[sleep_type]
+        duration_text = f"{h}小時{m:02d}分" if h else f"{m}分鐘"
+        reply(token, TextMessage(
+            text=(
+                f"現在是 {now.strftime('%H:%M')}。\n"
+                f"如果 {wake_dt.strftime('%H:%M')} 起床，還可以睡 {duration_text}。\n\n"
+                f"系統會歸類為{s_info['emoji']} {sleep_type}。"
+            ),
+            quick_reply=QuickReply(items=[
+                QuickReplyItem(action=MessageAction(label="開始記錄", text=f"開始睡到 {wake_dt.strftime('%H:%M')} 起床")),
+                QuickReplyItem(action=MessageAction(label="只設鬧鐘", text=f"鬧鐘 {wake_dt.strftime('%H:%M')}")),
+                QuickReplyItem(action=MessageAction(label="選單", text="選單")),
+            ]),
+        ))
+        return
+
+    if (
+        any(keyword in text for keyword in ["可以睡多久", "還能睡多久", "還可以睡多久"])
+        or ("現在" in text and "睡" in text and "起床" in text)
+    ):
+        reply(token, TextMessage(
+            text=(
+                "請告訴我你想幾點起床，我會幫你算還可以睡多久。\n\n"
+                "例如：\n"
+                "現在睡 07:30 起床\n"
+                "現在睡到 7點半\n"
+                "07:30 起床可以睡多久"
+            ),
+            quick_reply=QuickReply(items=[
+                QuickReplyItem(action=MessageAction(label="07:30起床", text="現在睡 07:30 起床")),
+                QuickReplyItem(action=MessageAction(label="08:00起床", text="現在睡 08:00 起床")),
+                QuickReplyItem(action=MessageAction(label="只設鬧鐘", text="鬧鐘")),
+            ]),
+        ))
+        return
 
     # ════════════════════════════════════════════════════
     # 標準指令
