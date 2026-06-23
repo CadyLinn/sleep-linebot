@@ -297,18 +297,27 @@ def build_sleep_stats(records, now):
         color = MINT if hours >= 7 else (YELLOW if hours >= 4 else CORAL)
         status = "🌟 已完成" if hours >= 7 else ("⚡ 普通" if hours >= 4 else "😌 已記錄")
         bar_pct = min(int(total_min / 480 * 100), 100)
-        type_counts = {}
-        for record, _, _, _ in completed:
+        type_stats = {}
+        for record, _, _, total_minutes in completed:
             sleep_type = record.get("sleep_type", "睡眠")
-            type_counts[sleep_type] = type_counts.get(sleep_type, 0) + 1
-        type_text = "、".join(f"{name}{count}次" for name, count in type_counts.items())
+            if sleep_type not in type_stats:
+                type_stats[sleep_type] = {"count": 0, "minutes": 0}
+            type_stats[sleep_type]["count"] += 1
+            type_stats[sleep_type]["minutes"] += total_minutes
+        type_text = "、".join(
+            f"{name}{stats['count']}次/{_duration_text(stats['minutes'])}"
+            for name, stats in type_stats.items()
+        )
         rows = [
-            ("🛌 類型", type_text),
-            ("🌙 首次入睡", first_start.strftime("%H:%M")),
-            ("☀️ 最後起床", last_end.strftime("%H:%M")),
-            ("⏱ 總時長", dur_text),
+            ("🧾 今日紀錄", type_text),
+            ("🌙 最早入睡", first_start.strftime("%H:%M")),
+            ("☀️ 最晚起床", last_end.strftime("%H:%M")),
+            ("⏱ 累計睡眠", dur_text),
             ("📌 筆數", f"{len(completed)} 筆"),
         ]
+        if running and running.get("sleep_start"):
+            running_start = datetime.fromisoformat(running["sleep_start"]).astimezone(TZ)
+            rows.append(("😴 進行中", f"{running.get('sleep_type', '睡眠')} {running_start.strftime('%H:%M')} 開始"))
     elif running:
         sleep_type = running.get("sleep_type", "大睡")
         target_wake = running.get("target_wake")
