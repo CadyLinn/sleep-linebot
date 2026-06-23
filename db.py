@@ -124,21 +124,60 @@ def clear_pending(user_id: str):
 
 # ── Alarm ────────────────────────────────────────────────────────────────────
 
-def set_alarm(user_id: str, time_str: str):
-    _set_fields(user_id, {"alarm_time": time_str, "alarm_count": 0})
+def set_alarm(user_id: str, time_str: str, repeat_total: int = 1):
+    repeat_total = max(1, min(int(repeat_total or 1), 10))
+    _set_fields(user_id, {
+        "alarm_time": time_str,
+        "alarm_count": 0,
+        "alarm_repeat_total": repeat_total,
+        "alarm_last_trigger_date": None,
+    })
 
 
 def get_alarm(user_id: str):
-    return _get_settings(user_id).get("alarm_time")
+    s = _get_settings(user_id)
+    if not s.get("alarm_time"):
+        return None
+    return {
+        "alarm_time": s.get("alarm_time"),
+        "alarm_count": s.get("alarm_count", 0),
+        "alarm_repeat_total": s.get("alarm_repeat_total", 1),
+        "alarm_last_trigger_date": s.get("alarm_last_trigger_date"),
+    }
+
+
+def get_alarm_settings(user_id: str):
+    return get_alarm(user_id)
+
+
+def set_alarm_repeat(user_id: str, repeat_total: int):
+    repeat_total = max(1, min(int(repeat_total or 1), 10))
+    s = _get_settings(user_id)
+    if not s.get("alarm_time"):
+        return False
+    _set_fields(user_id, {
+        "alarm_repeat_total": repeat_total,
+        "alarm_count": 0,
+        "alarm_last_trigger_date": None,
+    })
+    return True
 
 
 def delete_alarm(user_id: str):
-    _set_fields(user_id, {"alarm_time": None, "alarm_count": 0})
+    _set_fields(user_id, {
+        "alarm_time": None,
+        "alarm_count": 0,
+        "alarm_last_trigger_date": None,
+    })
 
 
 def increment_alarm_count(user_id: str):
+    today = datetime.now(TZ).date().isoformat()
     ref = _settings_ref(user_id)
-    ref.update({"alarm_count": firestore.Increment(1)})
+    ref.update({
+        "alarm_count": firestore.Increment(1),
+        "alarm_last_trigger_date": today,
+    })
 
 
 def reset_alarm_count(user_id: str):
@@ -146,12 +185,18 @@ def reset_alarm_count(user_id: str):
 
 
 def get_all_alarms():
-    """回傳所有有設定鬧鐘的 (user_id, alarm_time, alarm_count)"""
+    """回傳所有有設定鬧鐘的 (user_id, alarm_time, alarm_count, repeat_total, last_trigger_date)"""
     docs = _settings_col().where("alarm_time", "!=", None).stream()
     result = []
     for doc in docs:
         d = doc.to_dict()
-        result.append((doc.id, d.get("alarm_time"), d.get("alarm_count", 0)))
+        result.append((
+            doc.id,
+            d.get("alarm_time"),
+            d.get("alarm_count", 0),
+            d.get("alarm_repeat_total", 1),
+            d.get("alarm_last_trigger_date"),
+        ))
     return result
 
 # ── Bedtime Reminder ─────────────────────────────────────────────────────────
@@ -194,6 +239,8 @@ def reset_all_settings(user_id: str):
     _set_fields(user_id, {
         "alarm_time": None,
         "alarm_count": 0,
+        "alarm_repeat_total": 1,
+        "alarm_last_trigger_date": None,
         "bedtime_reminder": None,
         "pending_action": None,
         "pending_sleep_type": None,

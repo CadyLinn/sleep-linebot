@@ -196,7 +196,7 @@ def _is_alarm_repeat_command(text: str):
 def _parse_alarm_request(text: str, now: datetime):
     raw = text.strip()
     raw = re.sub(r"^(設定鬧鐘|鬧鐘|叫我|提醒我)\s*", "", raw).strip()
-    repeat_total = _parse_repeat_count(raw) or 3
+    repeat_total = _parse_repeat_count(raw) or 1
     target_text = _strip_repeat_text(raw)
 
     time_str = _parse_time(target_text)
@@ -406,7 +406,7 @@ def _alarm_repeat_quick_reply():
 def _alarm_prompt(alarm=None):
     current = ""
     if alarm and alarm.get("alarm_time"):
-        current = f"目前鬧鐘：{alarm['alarm_time']}，通知 {alarm.get('alarm_repeat_total') or 3} 次\n\n"
+        current = f"目前鬧鐘：{alarm['alarm_time']}，通知 {alarm.get('alarm_repeat_total') or 1} 次\n\n"
     return (
         f"⏰ {current}要多久後響？\n\n"
         "可以直接選下方：10分鐘後、20分鐘後、30分鐘後、1小時後\n"
