@@ -16,7 +16,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 import pytz
 
 from db import (
-    init_db, start_sleep, end_sleep, get_latest_record, get_week_records,
+    init_db, start_sleep, end_sleep, get_latest_record, get_today_records, get_week_records,
     set_alarm, get_alarm, delete_alarm, set_bedtime_reminder,
     get_bedtime_reminder, get_all_alarms, get_all_bedtime_reminders,
     set_pending, get_pending, clear_pending,
@@ -299,7 +299,7 @@ def _set_wake_for_running_sleep_and_reply(token, user_id, now, sleep_type, hours
         _start_sleep_and_reply(token, user_id, now, sleep_type, hours, minutes, wake_dt)
         return
 
-    # 更新起床時間（Firestore: end_sleep 會在起床時更新）
+    start_time = datetime.fromisoformat(record["sleep_start"]).astimezone(TZ)
     set_alarm(user_id, wake_str)
     flex = build_sleep_countdown(
         sleep_type=sleep_type,
@@ -663,15 +663,13 @@ def handle_message(event):
     # ── 睡覺（選類型）──
     elif text in ["睡覺", "開始睡覺", "我要開始睡覺"]:
         alarm = get_alarm(user_id)
-        record = get_latest_record(user_id)
-        has_running_sleep = record and record.get("sleep_start") and not record.get("sleep_end")
-        if alarm and alarm.get("alarm_time") and not has_running_sleep:
+        if alarm and alarm.get("alarm_time"):
             reply(token, TextMessage(
                 text=(
                     f"⏰ 目前已有鬧鐘行程\n"
                     f"時間：{alarm['alarm_time']}\n"
                     f"通知：{alarm.get('alarm_repeat_total') or 1} 次\n\n"
-                    "要開始新的睡眠會用新的起床時間覆蓋目前鬧鐘。"
+                    "要開始新的睡眠請按「開始睡覺」，新的起床時間會覆蓋目前鬧鐘。"
                 ),
                 quick_reply=QuickReply(items=[
                     QuickReplyItem(action=MessageAction(label="😴 開始睡覺", text="選擇睡眠類型")),
@@ -751,7 +749,7 @@ def handle_message(event):
 
     # ── 今日統計 ──
     elif text in ["今日統計", "今天", "統計", "紀錄"]:
-        records = [get_latest_record(user_id)] if get_latest_record(user_id) else []
+        records = get_today_records(user_id)
         if not records:
             reply(token, TextMessage(text=(
                 "📊 今天還沒有睡眠紀錄\n\n"

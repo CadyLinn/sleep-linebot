@@ -28,14 +28,17 @@ def init_db():
 
 # ── Sleep Records ────────────────────────────────────────────────────────────
 
-def _doc_id(user_id: str, date: str) -> str:
-    return f"{user_id}_{date}"
+def _record_start(record: dict):
+    try:
+        return datetime.fromisoformat(record.get("sleep_start")).astimezone(TZ)
+    except (TypeError, ValueError):
+        return datetime.min.replace(tzinfo=TZ)
 
 
 def start_sleep(user_id: str, iso_time: str, sleep_type: str = "大睡", target_wake: str = None):
     dt = datetime.fromisoformat(iso_time).astimezone(TZ)
     date = dt.strftime("%Y-%m-%d")
-    doc_ref = _records_col().document(_doc_id(user_id, date))
+    doc_ref = _records_col().document()
     doc_ref.set({
         "user_id": user_id,
         "date": date,
@@ -48,45 +51,45 @@ def start_sleep(user_id: str, iso_time: str, sleep_type: str = "大睡", target_
 
 def end_sleep(user_id: str, iso_time: str):
     """結束最近一筆未結束的睡眠紀錄"""
-    docs = (
-        _records_col()
-        .where("user_id", "==", user_id)
-        .where("sleep_end", "==", None)
-        .order_by("date", direction=firestore.Query.DESCENDING)
-        .limit(1)
-        .stream()
-    )
-    for doc in docs:
-        doc.reference.update({"sleep_end": iso_time})
-        break
+    open_docs = []
+    for doc in _records_col().where("user_id", "==", user_id).stream():
+        record = doc.to_dict()
+        if record.get("sleep_start") and not record.get("sleep_end"):
+            open_docs.append((doc, record))
+    if open_docs:
+        latest_doc, _ = max(open_docs, key=lambda item: _record_start(item[1]))
+        latest_doc.reference.update({"sleep_end": iso_time})
 
 
 def get_latest_record(user_id: str):
     """取得最近一筆睡眠紀錄"""
-    docs = (
-        _records_col()
-        .where("user_id", "==", user_id)
-        .order_by("date", direction=firestore.Query.DESCENDING)
-        .limit(1)
-        .stream()
-    )
-    for doc in docs:
-        return doc.to_dict()
-    return None
+    records = [doc.to_dict() for doc in _records_col().where("user_id", "==", user_id).stream()]
+    if not records:
+        return None
+    return max(records, key=_record_start)
+
+
+def get_today_records(user_id: str):
+    """取得今天所有睡眠紀錄"""
+    today = datetime.now(TZ).date().isoformat()
+    records = []
+    for doc in _records_col().where("user_id", "==", user_id).stream():
+        record = doc.to_dict()
+        if record.get("date") == today:
+            records.append(record)
+    return sorted(records, key=_record_start)
 
 
 def get_week_records(user_id: str):
     """取得最近 7 天的睡眠紀錄"""
     today = datetime.now(TZ).date()
     week_ago = (today - timedelta(days=6)).isoformat()
-    docs = (
-        _records_col()
-        .where("user_id", "==", user_id)
-        .where("date", ">=", week_ago)
-        .order_by("date")
-        .stream()
-    )
-    return [doc.to_dict() for doc in docs]
+    records = []
+    for doc in _records_col().where("user_id", "==", user_id).stream():
+        record = doc.to_dict()
+        if record.get("date") and record.get("date") >= week_ago:
+            records.append(record)
+    return sorted(records, key=_record_start)
 
 # ── User Settings ────────────────────────────────────────────────────────────
 
@@ -222,16 +225,13 @@ def get_all_bedtime_reminders():
 
 def reset_today_sleep(user_id: str):
     """刪除最近一筆睡眠紀錄"""
-    docs = (
-        _records_col()
-        .where("user_id", "==", user_id)
-        .order_by("date", direction=firestore.Query.DESCENDING)
-        .limit(1)
-        .stream()
-    )
-    for doc in docs:
+    docs = []
+    for doc in _records_col().where("user_id", "==", user_id).stream():
+        record = doc.to_dict()
+        if record.get("date") == datetime.now(TZ).date().isoformat():
+            docs.append((doc, record))
+    for doc, _ in docs:
         doc.reference.delete()
-        break
 
 
 def reset_all_settings(user_id: str):
