@@ -36,82 +36,117 @@ def _msg_btn(label, text, color=PURPLE):
 
 # ── Main Menu ──────────────────────────────────────────────────────────────
 
+def _menu_row(emoji, title, desc, btn_label, btn_text, color=PURPLE):
+    """一列選單項目：emoji + 標題 + 說明 + 按鈕"""
+    return {
+        "type": "box",
+        "layout": "horizontal",
+        "backgroundColor": "#0F172A",
+        "cornerRadius": "12px",
+        "paddingAll": "14px",
+        "spacing": "md",
+        "contents": [
+            # 左側 emoji
+            {
+                "type": "box",
+                "layout": "vertical",
+                "justifyContent": "center",
+                "flex": 1,
+                "contents": [
+                    {"type": "text", "text": emoji, "size": "xxl", "align": "center"},
+                ],
+            },
+            # 中間 標題＋說明
+            {
+                "type": "box",
+                "layout": "vertical",
+                "flex": 4,
+                "justifyContent": "center",
+                "contents": [
+                    {"type": "text", "text": title, "size": "md",
+                     "color": WHITE, "weight": "bold"},
+                    {"type": "text", "text": desc, "size": "xs",
+                     "color": GRAY, "wrap": True, "margin": "xs"},
+                ],
+            },
+            # 右側 按鈕
+            {
+                "type": "box",
+                "layout": "vertical",
+                "flex": 2,
+                "justifyContent": "center",
+                "contents": [
+                    {"type": "button", "style": "primary", "color": color,
+                     "height": "sm",
+                     "action": {"type": "message", "label": btn_label, "text": btn_text}},
+                ],
+            },
+        ],
+    }
+
+
+# ── Main Menu ──────────────────────────────────────────────────────────────
+
 def build_main_menu():
     return {
-        "type": "bubble", "size": "giga",
-        "header": _header("😴 睡眠小幫手", "選擇你要的睡眠類型"),
-        "body": {
-            "type": "box", "layout": "vertical",
-            "backgroundColor": INDIGO, "paddingAll": "16px", "spacing": "md",
+        "type": "bubble",
+        "size": "giga",
+        "header": {
+            "type": "box",
+            "layout": "vertical",
+            "backgroundColor": NAVY,
+            "paddingAll": "20px",
             "contents": [
-                # 睡眠類型 三個
-                {
-                    "type": "box", "layout": "horizontal", "spacing": "sm",
-                    "contents": [
-                        _card([
-                            {"type": "text", "text": "💤", "size": "xxl", "align": "center"},
-                            {"type": "text", "text": "小睡", "size": "md", "color": WHITE,
-                             "align": "center", "weight": "bold", "margin": "sm"},
-                            {"type": "text", "text": "20-90分鐘", "size": "xxs",
-                             "color": GRAY, "align": "center"},
-                            _msg_btn("小睡", "小睡", VIOLET),
-                        ]),
-                        _card([
-                            {"type": "text", "text": "😴", "size": "xxl", "align": "center"},
-                            {"type": "text", "text": "中睡", "size": "md", "color": WHITE,
-                             "align": "center", "weight": "bold", "margin": "sm"},
-                            {"type": "text", "text": "3-5小時", "size": "xxs",
-                             "color": GRAY, "align": "center"},
-                            _msg_btn("中睡", "中睡", YELLOW),
-                        ]),
-                        _card([
-                            {"type": "text", "text": "🛌", "size": "xxl", "align": "center"},
-                            {"type": "text", "text": "大睡", "size": "md", "color": WHITE,
-                             "align": "center", "weight": "bold", "margin": "sm"},
-                            {"type": "text", "text": "7-9小時", "size": "xxs",
-                             "color": GRAY, "align": "center"},
-                            _msg_btn("大睡", "大睡", MINT),
-                        ]),
-                    ],
-                },
-                # 起床
-                {
-                    "type": "box", "layout": "vertical",
-                    "backgroundColor": "#0F172A", "cornerRadius": "12px", "paddingAll": "14px",
-                    "contents": [
-                        _msg_btn("☀️ 起床了！結束計時", "起床", CORAL),
-                    ],
-                },
-                # 統計 / 鬧鐘
-                {
-                    "type": "box", "layout": "horizontal", "spacing": "sm",
-                    "contents": [
-                        _card([
-                            {"type": "text", "text": "📊 今日統計", "size": "sm",
-                             "color": YELLOW, "weight": "bold"},
-                            _msg_btn("查看", "統計"),
-                        ]),
-                        _card([
-                            {"type": "text", "text": "📈 週報告", "size": "sm",
-                             "color": VIOLET, "weight": "bold"},
-                            _msg_btn("查看", "週報告"),
-                        ]),
-                        _card([
-                            {"type": "text", "text": "⏰ 鬧鐘", "size": "sm",
-                             "color": CORAL, "weight": "bold"},
-                            _msg_btn("設定", "鬧鐘"),
-                        ]),
-                    ],
-                },
+                {"type": "text", "text": "😴 睡眠小幫手",
+                 "color": WHITE, "size": "xl", "weight": "bold"},
+                {"type": "text", "text": "選擇功能，開始記錄你的睡眠",
+                 "color": VIOLET, "size": "sm", "margin": "xs"},
             ],
         },
-        "footer": {
-            "type": "box", "layout": "vertical", "backgroundColor": NAVY, "paddingAll": "10px",
-            "contents": [{"type": "text", "text": "輸入「說明」查看完整指令",
-                          "size": "xs", "color": GRAY, "align": "center"}],
+        "body": {
+            "type": "box",
+            "layout": "vertical",
+            "backgroundColor": INDIGO,
+            "paddingAll": "14px",
+            "spacing": "sm",
+            "contents": [
+                # 分類標題：睡眠計時
+                {"type": "text", "text": "🛌  睡眠計時",
+                 "size": "xs", "color": VIOLET, "weight": "bold", "margin": "md"},
+
+                _menu_row("💤", "小睡", "快速補眠 20–90 分鐘", "開始", "小睡", VIOLET),
+                _menu_row("😴", "中睡", "深度補眠 3–5 小時",   "開始", "中睡", YELLOW),
+                _menu_row("🛌", "大睡", "完整睡眠 7–9 小時",   "開始", "大睡", MINT),
+                _menu_row("☀️", "起床", "結束計時，查看睡眠報告", "起床", "起床", CORAL),
+
+                # 分類標題：查看資料
+                {"type": "text", "text": "📊  查看資料",
+                 "size": "xs", "color": VIOLET, "weight": "bold", "margin": "md"},
+
+                _menu_row("📊", "今日統計", "查看今天入睡時間和睡眠時長", "查看", "統計", PURPLE),
+                _menu_row("📈", "週報告",   "本週 7 天睡眠趨勢圖",         "查看", "週報告", PURPLE),
+
+                # 分類標題：設定
+                {"type": "text", "text": "⚙️  設定",
+                 "size": "xs", "color": VIOLET, "weight": "bold", "margin": "md"},
+
+                _menu_row("⏰", "鬧鐘設定",  "設定起床鬧鐘（連響 3 次）", "設定", "鬧鐘", CORAL),
+                _menu_row("🌙", "睡前提醒",  "每天定時提醒你準備睡覺",   "設定", "睡前提醒 ", "#6366F1"),
+                _menu_row("🔄", "重設",      "重設今日紀錄或所有資料",    "重設", "重設", GRAY),
+
+                # 分類標題：其他
+                {"type": "text", "text": "💡  其他",
+                 "size": "xs", "color": VIOLET, "weight": "bold", "margin": "md"},
+
+                _menu_row("💡", "睡眠建議", "6 則改善睡眠品質的小知識", "查看", "睡眠建議", MINT),
+                _menu_row("❓", "使用說明", "查看所有指令列表",           "說明", "說明", GRAY),
+            ],
         },
     }
 
+
+
+# ── Sleep Countdown ────────────────────────────────────────────────────────
 
 # ── Sleep Countdown ────────────────────────────────────────────────────────
 
