@@ -1,0 +1,5 @@
+line-bot-sdk==3.*
+flask==3.*
+apscheduler==3.*
+pytz
+gunicorn
