@@ -189,9 +189,22 @@ def _calc_from_duration(now: datetime, total_minutes: int):
     return h, m, wake
 
 
+def _auto_sleep_type(total_minutes: int) -> str:
+    """根據實際睡眠時長自動判斷類型"""
+    if total_minutes <= 90:
+        return "小睡"
+    elif total_minutes <= 300:
+        return "中睡"
+    else:
+        return "大睡"
+
+
 def _start_sleep_and_reply(token, user_id, now, sleep_type, hours, minutes, wake_dt):
-    """統一的「開始睡眠＋建立回覆」邏輯"""
-    s_info = SLEEP_TYPES.get(sleep_type, SLEEP_TYPES["大睡"])
+    """統一的「開始睡眠＋建立回覆」邏輯，類型由實際時長自動決定"""
+    # 永遠根據實際時長自動判斷類型
+    total_min = hours * 60 + minutes
+    sleep_type = _auto_sleep_type(total_min)
+    s_info = SLEEP_TYPES[sleep_type]
     wake_str = wake_dt.strftime("%H:%M")
     start_sleep(user_id, now.isoformat(), sleep_type=sleep_type, target_wake=wake_str)
     set_alarm(user_id, wake_str)
@@ -204,7 +217,7 @@ def _start_sleep_and_reply(token, user_id, now, sleep_type, hours, minutes, wake
         minutes=minutes,
     )
     reply(token, FlexMessage(
-        alt_text=f"{s_info['emoji']} 已開始{sleep_type}，{wake_str} 叫你起床",
+        alt_text=f"{s_info['emoji']} 已開始{sleep_type}（{hours}h{minutes:02d}m），{wake_str} 叫你起床",
         contents=FlexContainer.from_dict(flex),
     ))
 
