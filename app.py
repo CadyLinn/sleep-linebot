@@ -1109,7 +1109,6 @@ def handle_message(event):
                 quick_reply=QuickReply(items=[
                     QuickReplyItem(action=MessageAction(label="睡眠週期", text="睡眠週期")),
                     QuickReplyItem(action=MessageAction(label="算可睡多久", text="算可睡多久")),
-                    QuickReplyItem(action=MessageAction(label="07:30起床", text="現在睡 07:30 起床")),
                 ]),
             ),
         ])
