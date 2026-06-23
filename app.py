@@ -50,6 +50,9 @@ logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 
+# 初始化資料庫（gunicorn 啟動時也會執行）
+init_db()
+
 configuration = Configuration(access_token=os.environ.get("LINE_CHANNEL_ACCESS_TOKEN", ""))
 handler = WebhookHandler(os.environ.get("LINE_CHANNEL_SECRET", ""))
 
@@ -330,6 +333,5 @@ def handle_message(event):
 
 
 if __name__ == "__main__":
-    init_db()
     port = int(os.environ.get("PORT", 8080))
     app.run(host="0.0.0.0", port=port)
