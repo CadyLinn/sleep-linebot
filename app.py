@@ -321,6 +321,61 @@ def _sleep_until_quick_reply(wake_dt: datetime):
     ])
 
 
+def _parse_sleep_latency_minutes(text: str):
+    match = re.search(r"(\d{1,2})\s*(?:分鐘|分|min)?(?:後)?(?:真正)?入睡", text)
+    if match:
+        return max(0, min(int(match.group(1)), 60))
+    match = re.search(r"入睡\s*(\d{1,2})\s*(?:分鐘|分|min)?", text)
+    if match:
+        return max(0, min(int(match.group(1)), 60))
+    return 15
+
+
+def _parse_asleep_datetime(text: str, now: datetime):
+    if "入睡" not in text:
+        return None
+    time_str = _parse_clock_time(text)
+    if not time_str:
+        return None
+    asleep_at = datetime.strptime(time_str, "%H:%M").replace(
+        year=now.year, month=now.month, day=now.day, tzinfo=TZ
+    )
+    if asleep_at <= now:
+        asleep_at += timedelta(days=1)
+    return asleep_at
+
+
+def _sleep_cycle_message(now: datetime, latency_minutes: int = 15, asleep_at: datetime = None):
+    asleep_at = asleep_at or (now + timedelta(minutes=latency_minutes))
+    latency_minutes = max(int((asleep_at - now).total_seconds() // 60), 0)
+    rows = []
+    for cycles in range(4, 7):
+        wake_dt = asleep_at + timedelta(minutes=90 * cycles)
+        total_minutes = max(int((wake_dt - now).total_seconds() // 60), 0)
+        hours = total_minutes // 60
+        minutes = total_minutes % 60
+        rows.append(f"{cycles} 個週期：{wake_dt.strftime('%H:%M')}（約 {hours}小時{minutes:02d}分）")
+    return (
+        f"現在是 {now.strftime('%H:%M')}。\n"
+        f"真正入睡時間：{asleep_at.strftime('%H:%M')}（約 {latency_minutes} 分鐘後）。\n\n"
+        "建議起床時間：\n"
+        + "\n".join(rows)
+        + "\n\n可輸入「睡眠週期 10分鐘入睡」或「睡眠週期 01:50入睡」調整。"
+    )
+
+
+def _sleep_cycle_quick_reply(now: datetime, latency_minutes: int = 15, asleep_at: datetime = None):
+    asleep_at = asleep_at or (now + timedelta(minutes=latency_minutes))
+    wake_5 = asleep_at + timedelta(minutes=90 * 5)
+    wake_6 = asleep_at + timedelta(minutes=90 * 6)
+    return QuickReply(items=[
+        QuickReplyItem(action=MessageAction(label=f"{wake_5.strftime('%H:%M')}記錄", text=f"開始睡到 {wake_5.strftime('%H:%M')} 起床")),
+        QuickReplyItem(action=MessageAction(label=f"{wake_6.strftime('%H:%M')}記錄", text=f"開始睡到 {wake_6.strftime('%H:%M')} 起床")),
+        QuickReplyItem(action=MessageAction(label="10分入睡", text="睡眠週期 10分鐘入睡")),
+        QuickReplyItem(action=MessageAction(label="20分入睡", text="睡眠週期 20分鐘入睡")),
+    ])
+
+
 def _auto_sleep_type(total_minutes: int) -> str:
     """根據實際睡眠時長自動判斷類型"""
     if total_minutes <= 90:
@@ -493,7 +548,7 @@ GLOBAL_COMMANDS = {
     "開始睡覺", "我要開始睡覺", "睡覺", "小睡", "中睡", "大睡", "起床", "醒來", "起床了",
     "今日統計", "今天", "統計", "紀錄", "週報告", "本週", "週統計",
     "鬧鐘", "設定鬧鐘", "查看鬧鐘", "重新設定鬧鐘",
-    "睡眠建議", "建議", "tips", "小知識", "算可睡多久", "狀態", "計時狀態",
+    "睡眠建議", "建議", "tips", "小知識", "算可睡多久", "睡眠週期", "狀態", "計時狀態",
     "說明", "幫助", "help", "Help", "指令", "重設", "重新設定", "reset",
 }
 
@@ -511,7 +566,7 @@ def _is_global_command(text):
     return any(
         keyword in clean
         for keyword in [
-            "開始睡覺", "今日統計", "週報告", "睡眠建議", "算可睡多久",
+            "開始睡覺", "今日統計", "週報告", "睡眠建議", "算可睡多久", "睡眠週期",
             "選單", "起床", "查看鬧鐘", "取消鬧鐘", "重新設定鬧鐘",
         ]
     )
@@ -793,6 +848,15 @@ def handle_message(event):
         ))
         return
 
+    if text.startswith("睡眠週期") or text.startswith("睡眠周期"):
+        asleep_at = _parse_asleep_datetime(text, now)
+        latency_minutes = _parse_sleep_latency_minutes(text)
+        reply(token, TextMessage(
+            text=_sleep_cycle_message(now, latency_minutes, asleep_at),
+            quick_reply=_sleep_cycle_quick_reply(now, latency_minutes, asleep_at),
+        ))
+        return
+
     # ════════════════════════════════════════════════════
     # 標準指令
     # ════════════════════════════════════════════════════
@@ -1040,11 +1104,11 @@ def handle_message(event):
                 contents=FlexContainer.from_dict(flex),
             ),
             TextMessage(
-                text="也可以計算現在睡到某個時間，還能睡多久。",
+                text="也可以計算現在睡到某個時間，還能睡多久，或用睡眠週期找適合的起床時間。",
                 quick_reply=QuickReply(items=[
+                    QuickReplyItem(action=MessageAction(label="睡眠週期", text="睡眠週期")),
                     QuickReplyItem(action=MessageAction(label="算可睡多久", text="算可睡多久")),
                     QuickReplyItem(action=MessageAction(label="07:30起床", text="現在睡 07:30 起床")),
-                    QuickReplyItem(action=MessageAction(label="08:00起床", text="現在睡 08:00 起床")),
                 ]),
             ),
         ])
@@ -1102,10 +1166,11 @@ def handle_message(event):
             "💡 其他\n"
             "「睡眠建議」→ 睡眠小知識\n"
             "「算可睡多久」→ 計算睡到幾點還能睡多久\n"
+            "「睡眠週期」→ 推薦完整週期起床時間\n"
             "「選單」→ 主選單\n\n"
             "💻 電腦版 LINE 可直接輸入\n"
             "開始睡覺 / 起床 / 今日統計 / 週報告\n"
-            "鬧鐘 / 睡眠建議 / 算可睡多久"
+            "鬧鐘 / 睡眠建議 / 算可睡多久 / 睡眠週期"
         )))
 
     # ── 預設回覆（嘗試解析時長）──
