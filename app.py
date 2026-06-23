@@ -282,9 +282,8 @@ def _set_alarm_or_ask_repeat(token, user_id, time_str, repeat_total, original_te
 
 def _calc_from_wake_time(now: datetime, wake_time_str: str):
     """從起床時間字串算出剩餘可睡時間"""
-    wake = datetime.strptime(wake_time_str, "%H:%M").replace(
-        year=now.year, month=now.month, day=now.day, tzinfo=TZ
-    )
+    parsed = datetime.strptime(wake_time_str, "%H:%M")
+    wake = TZ.localize(datetime(now.year, now.month, now.day, parsed.hour, parsed.minute))
     if wake <= now:
         wake += timedelta(days=1)
     delta = wake - now
@@ -337,9 +336,8 @@ def _parse_asleep_datetime(text: str, now: datetime):
     time_str = _parse_clock_time(text)
     if not time_str:
         return None
-    asleep_at = datetime.strptime(time_str, "%H:%M").replace(
-        year=now.year, month=now.month, day=now.day, tzinfo=TZ
-    )
+    parsed = datetime.strptime(time_str, "%H:%M")
+    asleep_at = TZ.localize(datetime(now.year, now.month, now.day, parsed.hour, parsed.minute))
     if asleep_at <= now:
         asleep_at += timedelta(days=1)
     return asleep_at
