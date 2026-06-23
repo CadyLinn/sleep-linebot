@@ -16,8 +16,8 @@ from apscheduler.schedulers.background import BackgroundScheduler
 import pytz
 
 from db import (
-    init_db, start_sleep, end_sleep, get_latest_record, get_week_records,
-    set_alarm, get_alarm, delete_alarm, set_bedtime_reminder,
+    init_db, start_sleep, end_sleep, get_latest_record, get_today_records, get_week_records,
+    set_alarm, get_alarm_settings, delete_alarm, set_bedtime_reminder,
     get_bedtime_reminder, get_all_alarms, get_all_bedtime_reminders,
     set_pending, get_pending, clear_pending,
     increment_alarm_count, reset_alarm_count,
@@ -69,12 +69,19 @@ def send_push(user_id: str, text: str):
 def check_alarms():
     now = datetime.now(TZ)
     current_time = now.strftime("%H:%M")
-    for user_id, alarm_time, alarm_count in get_all_alarms():
-        if alarm_time == current_time and alarm_count < 3:
-            msg = ALARM_MESSAGES[alarm_count].format(time=current_time)
+    today = now.date().isoformat()
+    for user_id, alarm_time, alarm_count, repeat_total, last_trigger_date in get_all_alarms():
+        should_start_today = alarm_time == current_time and last_trigger_date != today
+        should_continue = last_trigger_date == today and alarm_count > 0 and alarm_count < repeat_total
+        if should_start_today or should_continue:
+            if should_start_today:
+                reset_alarm_count(user_id)
+                alarm_count = 0
+            msg_index = min(alarm_count, len(ALARM_MESSAGES) - 1)
+            msg = ALARM_MESSAGES[msg_index].format(time=current_time)
             send_push(user_id, msg)
             increment_alarm_count(user_id)
-        elif alarm_time != current_time and alarm_count > 0:
+        elif last_trigger_date != today and alarm_count > 0:
             reset_alarm_count(user_id)
     for user_id, reminder_time in get_all_bedtime_reminders():
         if reminder_time == current_time:
@@ -115,13 +122,15 @@ def reply(reply_token, messages):
 
 
 def _parse_time(text: str):
-    """嘗試解析 HH:MM 格式，成功回傳 time_str，失敗回傳 None"""
+    """嘗試解析 HH:MM 或 HHMM 格式，成功回傳 HH:MM，失敗回傳 None"""
     text = text.strip()
-    try:
-        datetime.strptime(text, "%H:%M")
-        return text
-    except ValueError:
-        return None
+    for fmt in ("%H:%M", "%H%M"):
+        try:
+            parsed = datetime.strptime(text, fmt)
+            return parsed.strftime("%H:%M")
+        except ValueError:
+            pass
+    return None
 
 
 def _parse_duration_to_minutes(text: str):
@@ -167,6 +176,52 @@ def _parse_duration_to_minutes(text: str):
             matched = True
 
     return int(total) if matched and total > 0 else None
+
+
+def _parse_repeat_count(text: str):
+    m = re.search(r"(?:響|通知|提醒)?\s*(\d{1,2})\s*次", text)
+    if not m:
+        return None
+    return max(1, min(int(m.group(1)), 10))
+
+
+def _strip_repeat_text(text: str):
+    return re.sub(r"(?:響|通知|提醒)?\s*\d{1,2}\s*次", "", text).strip()
+
+
+def _parse_alarm_request(text: str, now: datetime):
+    raw = text.strip()
+    raw = re.sub(r"^(設定鬧鐘|鬧鐘|叫我|提醒我)\s*", "", raw).strip()
+    repeat_total = _parse_repeat_count(raw) or 3
+    target_text = _strip_repeat_text(raw)
+
+    time_str = _parse_time(target_text)
+    if time_str:
+        return time_str, repeat_total
+
+    minutes = _parse_duration_to_minutes(target_text)
+    if minutes:
+        _, _, alarm_dt = _calc_from_duration(now, minutes)
+        return alarm_dt.strftime("%H:%M"), repeat_total
+
+    return None, repeat_total
+
+
+def _reply_alarm_repeat_choice(token, user_id, time_str):
+    set_pending(user_id, "waiting_alarm_repeat", sleep_type=time_str)
+    reply(token, TextMessage(text=(
+        f"⏰ 鬧鐘時間：{time_str}\n"
+        "請選擇通知幾次"
+    ), quick_reply=_alarm_repeat_quick_reply()))
+
+
+def _set_alarm_or_ask_repeat(token, user_id, time_str, repeat_total, original_text):
+    if _parse_repeat_count(original_text):
+        clear_pending(user_id)
+        set_alarm(user_id, time_str, repeat_total)
+        reply(token, TextMessage(text=f"⏰ 鬧鐘設定成功！{time_str} 會通知 {repeat_total} 次 💪"))
+    else:
+        _reply_alarm_repeat_choice(token, user_id, time_str)
 
 
 def _calc_from_wake_time(now: datetime, wake_time_str: str):
@@ -246,6 +301,74 @@ def _duration_quick_reply(now=None):
     return QuickReply(items=items)
 
 
+def _alarm_time_quick_reply():
+    return QuickReply(items=[
+        QuickReplyItem(action=MessageAction(label="⏱ 10分鐘後", text="10分鐘")),
+        QuickReplyItem(action=MessageAction(label="⏱ 20分鐘後", text="20分鐘")),
+        QuickReplyItem(action=MessageAction(label="⏱ 30分鐘後", text="30分鐘")),
+        QuickReplyItem(action=MessageAction(label="⏱ 1小時後", text="1小時")),
+        QuickReplyItem(action=MessageAction(label="⏱ 2小時後", text="2小時")),
+        QuickReplyItem(action=MessageAction(label="🕒 指定時間", text="指定鬧鐘時間")),
+        QuickReplyItem(action=MessageAction(label="❌ 取消鬧鐘", text="取消鬧鐘")),
+    ])
+
+
+def _alarm_repeat_quick_reply():
+    return QuickReply(items=[
+        QuickReplyItem(action=MessageAction(label="響1次", text="響1次")),
+        QuickReplyItem(action=MessageAction(label="響3次", text="響3次")),
+        QuickReplyItem(action=MessageAction(label="響5次", text="響5次")),
+        QuickReplyItem(action=MessageAction(label="❌ 取消", text="取消鬧鐘")),
+    ])
+
+
+def _alarm_prompt(alarm=None):
+    current = ""
+    if alarm and alarm.get("alarm_time"):
+        current = f"目前鬧鐘：{alarm['alarm_time']}，通知 {alarm.get('alarm_repeat_total') or 3} 次\n\n"
+    return (
+        f"⏰ {current}要多久後響？\n\n"
+        "可以直接選下方：10分鐘後、20分鐘後、30分鐘後、1小時後\n"
+        "也可以輸入：30分鐘、1小時30分、0730、07:30\n\n"
+        "設定時間後會再讓你選通知幾次。"
+    )
+
+
+GLOBAL_COMMANDS = {
+    "選單", "menu", "Menu", "開始", "start", "嗨", "hi", "Hi", "hello", "Hello",
+    "開始睡覺", "我要開始睡覺", "睡覺", "小睡", "中睡", "大睡", "起床", "醒來", "起床了",
+    "今日統計", "今天", "統計", "紀錄", "週報告", "本週", "週統計",
+    "鬧鐘", "設定鬧鐘", "查看鬧鐘", "重新設定鬧鐘",
+    "睡眠建議", "建議", "tips", "小知識", "狀態", "計時狀態",
+    "說明", "幫助", "help", "Help", "指令", "重設", "重新設定", "reset",
+}
+
+
+def _clean_command_text(text):
+    return re.sub(r"^[^\w\u4e00-\u9fff]+", "", text.strip()).strip()
+
+
+def _is_global_command(text):
+    clean = _clean_command_text(text)
+    if clean in GLOBAL_COMMANDS:
+        return True
+    if clean.startswith(("鬧鐘 ", "設定鬧鐘 ", "睡前提醒 ", "就寢提醒 ")):
+        return True
+    return any(
+        keyword in clean
+        for keyword in [
+            "開始睡覺", "今日統計", "週報告", "睡眠建議",
+            "選單", "起床", "查看鬧鐘", "取消鬧鐘", "重新設定鬧鐘",
+        ]
+    )
+
+
+def _should_leave_pending(pending_action, text):
+    if not pending_action:
+        return False
+    return _is_global_command(text)
+
+
 # ── Message Handler ─────────────────────────────────────────────────────────
 
 @handler.add(MessageEvent, message=TextMessageContent)
@@ -259,6 +382,19 @@ def handle_message(event):
     # 優先處理 pending 狀態
     # ════════════════════════════════════════════════════
     pending_action, pending_sleep_type = get_pending(user_id)
+
+    if _should_leave_pending(pending_action, text):
+        clear_pending(user_id)
+        pending_action, pending_sleep_type = None, None
+
+    if pending_action and text in ["取消", "取消設定", "取消鬧鐘", "刪除鬧鐘"]:
+        clear_pending(user_id)
+        if text in ["取消鬧鐘", "刪除鬧鐘"]:
+            delete_alarm(user_id)
+            reply(token, TextMessage(text="⏰ 鬧鐘已取消！"))
+        else:
+            reply(token, TextMessage(text="✅ 已取消設定"))
+        return
 
     # ── 等待輸入起床方式（時間 or 時長）──
     if pending_action == "waiting_wake_time":
@@ -310,23 +446,69 @@ def handle_message(event):
             clear_pending(user_id)
             h, m, wake_dt = _calc_from_wake_time(now, time_str)
             _start_sleep_and_reply(token, user_id, now, pending_sleep_type, h, m, wake_dt)
-        else:
-            reply(token, TextMessage(text="❌ 請輸入 HH:MM 格式，例如：07:30"))
+            return
+
+        minutes = _parse_duration_to_minutes(text)
+        if minutes and minutes > 0:
+            clear_pending(user_id)
+            h, m, wake_dt = _calc_from_duration(now, minutes)
+            _start_sleep_and_reply(token, user_id, now, pending_sleep_type, h, m, wake_dt)
+            return
+
+        reply(token, TextMessage(
+            text=(
+                f"❌ 我沒看懂，現在是 {now.strftime('%H:%M')}\n\n"
+                "可以輸入：\n"
+                "「07:30」「0730」\n"
+                "「30分鐘」「1小時30分」\n"
+                "或按主選單功能離開設定"
+            ),
+            quick_reply=_duration_quick_reply(now),
+        ))
         return
 
     # ── 等待鬧鐘時間 ──
     if pending_action == "waiting_alarm_time":
-        time_str = _parse_time(text)
+        if text in ["指定鬧鐘時間", "指定時間", "輸入時間"]:
+            reply(token, TextMessage(
+                text=(
+                    "請輸入鬧鐘時間\n"
+                    "例如：07:30 或 0730\n\n"
+                    "輸入「取消鬧鐘」可取消"
+                ),
+                quick_reply=QuickReply(items=[
+                    QuickReplyItem(action=MessageAction(label="🌅 07:30", text="07:30")),
+                    QuickReplyItem(action=MessageAction(label="🌙 22:30", text="22:30")),
+                    QuickReplyItem(action=MessageAction(label="❌ 取消鬧鐘", text="取消鬧鐘")),
+                ]),
+            ))
+            return
+
+        time_str, repeat_total = _parse_alarm_request(text, now)
         if time_str:
+            _set_alarm_or_ask_repeat(token, user_id, time_str, repeat_total, text)
+        else:
+            reply(token, TextMessage(
+                text="❌ 我沒看懂鬧鐘時間\n\n" + _alarm_prompt(),
+                quick_reply=_alarm_time_quick_reply(),
+            ))
+        return
+
+    if pending_action == "waiting_alarm_repeat":
+        repeat_total = _parse_repeat_count(text)
+        if repeat_total:
             clear_pending(user_id)
-            set_alarm(user_id, time_str)
+            set_alarm(user_id, pending_sleep_type, repeat_total)
             reply(token, TextMessage(text=(
                 f"⏰ 鬧鐘設定成功！\n"
-                f"明天 {time_str} 會連響 3 次叫你起床 💪\n\n"
+                f"{pending_sleep_type} 會通知 {repeat_total} 次\n\n"
                 "輸入「取消鬧鐘」可以刪除"
             )))
         else:
-            reply(token, TextMessage(text="❌ 請輸入 HH:MM 格式，例如：07:30"))
+            reply(token, TextMessage(
+                text="請選擇或輸入通知次數，例如：響3次",
+                quick_reply=_alarm_repeat_quick_reply(),
+            ))
         return
 
     # ── 等待睡前提醒時間 ──
@@ -340,7 +522,11 @@ def handle_message(event):
                 f"每天 {time_str} 會提醒你準備睡覺 😴"
             )))
         else:
-            reply(token, TextMessage(text="❌ 請輸入 HH:MM 格式，例如：22:30"))
+            reply(token, TextMessage(text=(
+                "❌ 我沒看懂提醒時間\n\n"
+                "可以輸入 22:30 或 2230\n"
+                "也可以直接按其他主選單功能離開"
+            )))
         return
 
     # ── 完全重設確認 ──
@@ -392,7 +578,7 @@ def handle_message(event):
         ))
 
     # ── 睡覺（選類型）──
-    elif text == "睡覺":
+    elif text in ["睡覺", "開始睡覺", "我要開始睡覺"]:
         reply(token, TextMessage(
             text="你要睡哪種覺？😴",
             quick_reply=_sleep_type_quick_reply(),
@@ -455,14 +641,14 @@ def handle_message(event):
 
     # ── 今日統計 ──
     elif text in ["今日統計", "今天", "統計", "紀錄"]:
-        record = get_latest_record(user_id)
-        if not record or not record.get("sleep_start"):
+        records = get_today_records(user_id)
+        if not records:
             reply(token, TextMessage(text=(
                 "📊 今天還沒有睡眠紀錄\n\n"
                 "說「我要睡1小時」或點選單開始記錄 🌙"
             )))
         else:
-            flex = build_sleep_stats(record, now)
+            flex = build_sleep_stats(records, now)
             reply(token, FlexMessage(
                 alt_text="今日睡眠統計",
                 contents=FlexContainer.from_dict(flex),
@@ -478,26 +664,33 @@ def handle_message(event):
         ))
 
     # ── 鬧鐘 ──
-    elif text in ["鬧鐘", "設定鬧鐘", "查看鬧鐘"]:
-        alarm = get_alarm(user_id)
-        if alarm:
-            reply(token, TextMessage(text=(
-                f"⏰ 目前鬧鐘：{alarm}\n"
-                f"到時間會連響 3 次！\n\n"
-                "輸入新時間可重設，例如：鬧鐘 07:30\n"
-                "輸入「取消鬧鐘」刪除"
-            )))
+    elif text in ["設定鬧鐘", "重新設定鬧鐘"]:
+        set_pending(user_id, "waiting_alarm_time")
+        reply(token, TextMessage(
+            text=_alarm_prompt(),
+            quick_reply=_alarm_time_quick_reply(),
+        ))
+
+    elif text in ["鬧鐘", "查看鬧鐘"]:
+        alarm = get_alarm_settings(user_id)
+        set_pending(user_id, "waiting_alarm_time")
+        if alarm and alarm.get("alarm_time"):
+            reply(token, TextMessage(
+                text=_alarm_prompt(alarm),
+                quick_reply=_alarm_time_quick_reply(),
+            ))
         else:
-            set_pending(user_id, "waiting_alarm_time")
-            reply(token, TextMessage(text="⏰ 請輸入起床時間（HH:MM）\n例如：07:30"))
+            reply(token, TextMessage(
+                text=_alarm_prompt(),
+                quick_reply=_alarm_time_quick_reply(),
+            ))
 
     elif text.startswith("鬧鐘 ") or text.startswith("設定鬧鐘 "):
-        time_str = _parse_time(text.split()[-1])
+        time_str, repeat_total = _parse_alarm_request(text, now)
         if time_str:
-            set_alarm(user_id, time_str)
-            reply(token, TextMessage(text=f"⏰ 鬧鐘設定成功！{time_str} 連響 3 次 💪"))
+            _set_alarm_or_ask_repeat(token, user_id, time_str, repeat_total, text)
         else:
-            reply(token, TextMessage(text="❌ 格式錯誤，例如：鬧鐘 07:30"))
+            reply(token, TextMessage(text="❌ 格式錯誤，例如：鬧鐘 07:30 3次、鬧鐘 30分鐘"))
 
     elif text in ["取消鬧鐘", "刪除鬧鐘"]:
         delete_alarm(user_id)
@@ -506,7 +699,11 @@ def handle_message(event):
     # ── 睡前提醒 ──
     elif text in ["睡前提醒", "就寢提醒", "設定提醒"]:
         set_pending(user_id, "waiting_bedtime_time")
-        reply(token, TextMessage(text="🌙 請輸入睡前提醒時間（HH:MM）\n例如：22:30"))
+        reply(token, TextMessage(text=(
+            "🌙 請輸入睡前提醒時間\n"
+            "例如：22:30 或 2230\n\n"
+            "也可以直接按其他主選單功能離開"
+        )))
 
     elif re.match(r"^(睡前提醒|就寢提醒)\s+\d{1,2}:\d{2}$", text):
         time_str = _parse_time(text.split()[-1])
@@ -593,7 +790,8 @@ def handle_message(event):
             "「統計」→ 今天\n"
             "「週報告」→ 本週趨勢\n\n"
             "⏰ 鬧鐘（連響3次）\n"
-            "「鬧鐘 07:30」→ 設定\n"
+            "「鬧鐘 07:30 3次」→ 設定\n"
+            "「鬧鐘 30分鐘」→ 30 分鐘後提醒\n"
             "「取消鬧鐘」→ 刪除\n\n"
             "🌙 睡前提醒\n"
             "「睡前提醒」→ 設定\n"

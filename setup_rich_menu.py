@@ -18,20 +18,20 @@ RICH_MENU = {
     "name": "睡眠小幫手選單 v2",
     "chatBarText": "😴 睡眠選單",
     "areas": [
-        # 上排：小睡 / 中睡 / 大睡
+        # 上排：開始睡覺 / 起床 / 今日統計
         {"bounds": {"x":    0, "y":   0, "width": 833, "height": 843},
-         "action": {"type": "message", "label": "💤 小睡", "text": "小睡"}},
+         "action": {"type": "message", "label": "😴 開始睡覺", "text": "睡覺"}},
         {"bounds": {"x":  833, "y":   0, "width": 834, "height": 843},
-         "action": {"type": "message", "label": "😴 中睡", "text": "中睡"}},
-        {"bounds": {"x": 1667, "y":   0, "width": 833, "height": 843},
-         "action": {"type": "message", "label": "🛌 大睡", "text": "大睡"}},
-        # 下排：起床 / 統計 / 鬧鐘
-        {"bounds": {"x":    0, "y": 843, "width": 833, "height": 843},
          "action": {"type": "message", "label": "☀️ 起床", "text": "起床"}},
+        {"bounds": {"x": 1667, "y":   0, "width": 833, "height": 843},
+         "action": {"type": "message", "label": "📊 今日統計", "text": "今日統計"}},
+        # 下排：週報告 / 鬧鐘 / 睡眠建議
+        {"bounds": {"x":    0, "y": 843, "width": 833, "height": 843},
+         "action": {"type": "message", "label": "📈 週報告", "text": "週報告"}},
         {"bounds": {"x":  833, "y": 843, "width": 834, "height": 843},
-         "action": {"type": "message", "label": "📊 統計", "text": "統計"}},
-        {"bounds": {"x": 1667, "y": 843, "width": 833, "height": 843},
          "action": {"type": "message", "label": "⏰ 鬧鐘", "text": "鬧鐘"}},
+        {"bounds": {"x": 1667, "y": 843, "width": 833, "height": 843},
+         "action": {"type": "message", "label": "💡 睡眠建議", "text": "睡眠建議"}},
     ],
 }
 
@@ -75,8 +75,8 @@ print(f"""
 🎉 Rich Menu 設定完成！ID: {rich_menu_id}
 
 ┌──────────┬──────────┬──────────┐
-│  💤 小睡  │  😴 中睡  │  🛌 大睡  │
+│ 😴 開始睡覺 │  ☀️ 起床  │ 📊 今日統計 │
 ├──────────┼──────────┼──────────┤
-│  ☀️ 起床  │  📊 統計  │  ⏰ 鬧鐘  │
+│ 📈 週報告 │  ⏰ 鬧鐘  │ 💡 睡眠建議 │
 └──────────┴──────────┴──────────┘
 """)

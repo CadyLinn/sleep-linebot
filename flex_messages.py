@@ -34,6 +34,51 @@ def _msg_btn(label, text, color=PURPLE):
             "action": {"type": "message", "label": label, "text": text}}
 
 
+def _fit_text(text, size="sm", color=WHITE, weight=None, align=None, flex=None, wrap=False):
+    item = {
+        "type": "text",
+        "text": text,
+        "size": size,
+        "color": color,
+        "adjustMode": "shrink-to-fit",
+        "wrap": wrap,
+    }
+    if weight:
+        item["weight"] = weight
+    if align:
+        item["align"] = align
+    if flex is not None:
+        item["flex"] = flex
+    return item
+
+
+def _duration_parts(start, end):
+    total_min = max(int((end - start).total_seconds() // 60), 0)
+    return total_min, total_min // 60, total_min % 60
+
+
+def _duration_text(total_min):
+    hours = total_min // 60
+    minutes = total_min % 60
+    if hours and minutes:
+        return f"{hours}小時{minutes:02d}分"
+    if hours:
+        return f"{hours}小時"
+    return f"{minutes}分鐘"
+
+
+def _info_row(label, value, value_color=WHITE):
+    return {
+        "type": "box",
+        "layout": "horizontal",
+        "spacing": "md",
+        "contents": [
+            _fit_text(label, "sm", GRAY, flex=4, wrap=True),
+            _fit_text(value, "xl", value_color, "bold", "end", flex=6, wrap=False),
+        ],
+    }
+
+
 # ── Main Menu ──────────────────────────────────────────────────────────────
 
 def _menu_row(emoji, title, desc, btn_label, btn_text, color=PURPLE):
@@ -99,7 +144,7 @@ def build_main_menu():
             "contents": [
                 {"type": "text", "text": "😴 睡眠小幫手",
                  "color": WHITE, "size": "xl", "weight": "bold"},
-                {"type": "text", "text": "選擇功能，開始記錄你的睡眠",
+                {"type": "text", "text": "常用功能都在這裡",
                  "color": VIOLET, "size": "sm", "margin": "xs"},
             ],
         },
@@ -110,36 +155,15 @@ def build_main_menu():
             "paddingAll": "14px",
             "spacing": "sm",
             "contents": [
-                # 分類標題：睡眠計時
-                {"type": "text", "text": "🛌  睡眠計時",
+                {"type": "text", "text": "⭐  常用",
                  "size": "xs", "color": VIOLET, "weight": "bold", "margin": "md"},
 
-                _menu_row("💤", "小睡", "快速補眠 20–90 分鐘", "開始", "小睡", VIOLET),
-                _menu_row("😴", "中睡", "深度補眠 3–5 小時",   "開始", "中睡", YELLOW),
-                _menu_row("🛌", "大睡", "完整睡眠 7–9 小時",   "開始", "大睡", MINT),
-                _menu_row("☀️", "起床", "結束計時，查看睡眠報告", "起床", "起床", CORAL),
-
-                # 分類標題：查看資料
-                {"type": "text", "text": "📊  查看資料",
-                 "size": "xs", "color": VIOLET, "weight": "bold", "margin": "md"},
-
-                _menu_row("📊", "今日統計", "查看今天入睡時間和睡眠時長", "查看", "統計", PURPLE),
-                _menu_row("📈", "週報告",   "本週 7 天睡眠趨勢圖",         "查看", "週報告", PURPLE),
-
-                # 分類標題：設定
-                {"type": "text", "text": "⚙️  設定",
-                 "size": "xs", "color": VIOLET, "weight": "bold", "margin": "md"},
-
-                _menu_row("⏰", "鬧鐘設定",  "設定起床鬧鐘（連響 3 次）", "設定", "鬧鐘", CORAL),
-                _menu_row("🌙", "睡前提醒",  "每天定時提醒你準備睡覺",   "設定", "睡前提醒 ", "#6366F1"),
-                _menu_row("🔄", "重設",      "重設今日紀錄或所有資料",    "重設", "重設", GRAY),
-
-                # 分類標題：其他
-                {"type": "text", "text": "💡  其他",
-                 "size": "xs", "color": VIOLET, "weight": "bold", "margin": "md"},
-
-                _menu_row("💡", "睡眠建議", "6 則改善睡眠品質的小知識", "查看", "睡眠建議", MINT),
-                _menu_row("❓", "使用說明", "查看所有指令列表",           "說明", "說明", GRAY),
+                _menu_row("😴", "開始睡覺", "選擇小睡、中睡、大睡或直接輸入分鐘", "開始", "睡覺", VIOLET),
+                _menu_row("☀️", "起床", "結束目前計時並記錄睡眠", "起床", "起床", CORAL),
+                _menu_row("📊", "今日統計", "加總今天每一次睡眠與小睡", "查看", "今日統計", PURPLE),
+                _menu_row("📈", "週報告", "查看本週每天累計睡眠", "查看", "週報告", PURPLE),
+                _menu_row("⏰", "鬧鐘設定", "可設定時間、倒數分鐘與通知次數", "設定", "鬧鐘", CORAL),
+                _menu_row("💡", "睡眠建議", "改善睡眠品質的小知識", "查看", "睡眠建議", MINT),
             ],
         },
     }
@@ -181,44 +205,14 @@ def build_sleep_countdown(sleep_type, sleep_type_info, start_time, wake_time, ho
             "contents": [
                 {"type": "text", "text": f"{emoji} 已開始{sleep_type}！",
                  "color": WHITE, "size": "lg", "weight": "bold"},
-                # 入睡時間 → 起床時間
+                {"type": "separator", "color": "#2D3748", "margin": "md"},
                 {
-                    "type": "box", "layout": "horizontal",
-                    "margin": "lg", "spacing": "none",
+                    "type": "box", "layout": "vertical",
+                    "margin": "md", "spacing": "sm",
                     "contents": [
-                        {
-                            "type": "box", "layout": "vertical",
-                            "flex": 1, "alignItems": "center",
-                            "contents": [
-                                {"type": "text", "text": "🌙 入睡",
-                                 "size": "xs", "color": GRAY, "align": "center"},
-                                {"type": "text", "text": start_time.strftime("%H:%M"),
-                                 "size": "3xl", "color": VIOLET, "weight": "bold",
-                                 "align": "center", "margin": "xs"},
-                            ],
-                        },
-                        {
-                            "type": "box", "layout": "vertical",
-                            "flex": 1, "alignItems": "center", "justifyContent": "center",
-                            "contents": [
-                                {"type": "text", "text": "▶▶",
-                                 "size": "xs", "color": GRAY, "align": "center"},
-                                {"type": "text", "text": dur_text,
-                                 "size": "xs", "color": color, "weight": "bold",
-                                 "align": "center", "margin": "xs"},
-                            ],
-                        },
-                        {
-                            "type": "box", "layout": "vertical",
-                            "flex": 1, "alignItems": "center",
-                            "contents": [
-                                {"type": "text", "text": "☀️ 起床",
-                                 "size": "xs", "color": GRAY, "align": "center"},
-                                {"type": "text", "text": wake_time.strftime("%H:%M"),
-                                 "size": "3xl", "color": MINT, "weight": "bold",
-                                 "align": "center", "margin": "xs"},
-                            ],
-                        },
+                        _info_row("🌙 入睡時間", start_time.strftime("%H:%M"), VIOLET),
+                        _info_row("☀️ 預計起床", wake_time.strftime("%H:%M"), MINT),
+                        _info_row("⏱ 可睡多久", dur_text, color),
                     ],
                 },
             ],
@@ -255,35 +249,72 @@ def build_sleep_countdown(sleep_type, sleep_type_info, start_time, wake_time, ho
 
 # ── Sleep Stats (Today) ────────────────────────────────────────────────────
 
-def build_sleep_stats(record, now):
-    sleep_type = record.get("sleep_type", "大睡")
-    target_wake = record.get("target_wake")
+def build_sleep_stats(records, now):
+    if isinstance(records, dict):
+        records = [records]
 
-    if record.get("sleep_start") and record.get("sleep_end"):
-        start = datetime.fromisoformat(record["sleep_start"]).astimezone(TZ)
-        end = datetime.fromisoformat(record["sleep_end"]).astimezone(TZ)
-        delta = end - start
-        hours = int(delta.total_seconds() // 3600)
-        minutes = int((delta.total_seconds() % 3600) // 60)
-        end_text = end.strftime("%H:%M")
-        dur_text = f"{hours} 小時 {minutes} 分鐘"
+    completed = []
+    running = None
+    for record in records:
+        if record.get("sleep_start") and record.get("sleep_end"):
+            start = datetime.fromisoformat(record["sleep_start"]).astimezone(TZ)
+            end = datetime.fromisoformat(record["sleep_end"]).astimezone(TZ)
+            total_min, _, _ = _duration_parts(start, end)
+            completed.append((record, start, end, total_min))
+        elif record.get("sleep_start"):
+            running = record
+
+    if completed:
+        first_start = min(item[1] for item in completed)
+        last_end = max(item[2] for item in completed)
+        total_min = sum(item[3] for item in completed)
+        hours = total_min // 60
+        minutes = total_min % 60
+        dur_text = _duration_text(total_min)
         color = MINT if hours >= 7 else (YELLOW if hours >= 4 else CORAL)
-        status = "🌟 已完成" if hours >= 7 else ("⚡ 普通" if hours >= 4 else "⚠️ 偏短")
-        bar_pct = min(int(hours / 8 * 100), 100)
-    elif record.get("sleep_start"):
-        start = datetime.fromisoformat(record["sleep_start"]).astimezone(TZ)
+        status = "🌟 已完成" if hours >= 7 else ("⚡ 普通" if hours >= 4 else "😌 已記錄")
+        bar_pct = min(int(total_min / 480 * 100), 100)
+        type_counts = {}
+        for record, _, _, _ in completed:
+            sleep_type = record.get("sleep_type", "睡眠")
+            type_counts[sleep_type] = type_counts.get(sleep_type, 0) + 1
+        type_text = "、".join(f"{name}{count}次" for name, count in type_counts.items())
+        rows = [
+            ("🛌 類型", type_text),
+            ("🌙 首次入睡", first_start.strftime("%H:%M")),
+            ("☀️ 最後起床", last_end.strftime("%H:%M")),
+            ("⏱ 總時長", dur_text),
+            ("📌 筆數", f"{len(completed)} 筆"),
+        ]
+    elif running:
+        sleep_type = running.get("sleep_type", "大睡")
+        target_wake = running.get("target_wake")
+        start = datetime.fromisoformat(running["sleep_start"]).astimezone(TZ)
         elapsed = now - start
-        eh = int(elapsed.total_seconds() // 3600)
-        em = int((elapsed.total_seconds() % 3600) // 60)
-        end_text = "睡眠中..."
-        dur_text = f"已睡 {eh}h {em:02d}m"
+        total_min = max(int(elapsed.total_seconds() // 60), 0)
+        dur_text = f"已睡 {_duration_text(total_min)}"
         color = VIOLET
         status = "😴 計時中"
-        hours = eh
-        bar_pct = min(int(eh / 8 * 100), 100)
+        bar_pct = min(int(total_min / 480 * 100), 100)
+        rows = [
+            ("🛌 類型", sleep_type),
+            ("🌙 入睡", start.strftime("%H:%M")),
+            ("☀️ 起床", "睡眠中"),
+            ("⏱ 時長", dur_text),
+        ]
+        if target_wake:
+            rows.append(("⏰ 目標", target_wake))
     else:
         return {"type": "bubble", "body": {"type": "box", "layout": "vertical",
                 "contents": [{"type": "text", "text": "今天還沒有記錄"}]}}
+
+    detail_rows = [
+        {"type": "box", "layout": "horizontal", "spacing": "sm", "contents": [
+            _fit_text(label, "xs", GRAY, flex=3, wrap=True),
+            _fit_text(value, "sm", color if label.startswith("⏱") else WHITE, "bold", "end", flex=5, wrap=True),
+        ]}
+        for label, value in rows
+    ]
 
     return {
         "type": "bubble", "size": "mega",
@@ -292,38 +323,11 @@ def build_sleep_stats(record, now):
             "type": "box", "layout": "vertical",
             "backgroundColor": INDIGO, "paddingAll": "16px", "spacing": "md",
             "contents": [
-                {"type": "text", "text": status, "size": "lg", "color": color, "weight": "bold"},
+                _fit_text(status, "lg", color, "bold", wrap=True),
                 {"type": "separator", "color": "#2D3748"},
-                {"type": "box", "layout": "horizontal", "contents": [
-                    {"type": "text", "text": "🛌 類型", "size": "sm", "color": GRAY, "flex": 2},
-                    {"type": "text", "text": sleep_type, "size": "sm", "color": WHITE,
-                     "weight": "bold", "align": "end", "flex": 3},
-                ]},
-                {"type": "box", "layout": "horizontal", "contents": [
-                    {"type": "text", "text": "🌙 入睡", "size": "sm", "color": GRAY, "flex": 2},
-                    {"type": "text", "text": start.strftime("%H:%M"), "size": "sm",
-                     "color": WHITE, "weight": "bold", "align": "end", "flex": 3},
-                ]},
-                {"type": "box", "layout": "horizontal", "contents": [
-                    {"type": "text", "text": "☀️ 起床", "size": "sm", "color": GRAY, "flex": 2},
-                    {"type": "text", "text": end_text, "size": "sm", "color": WHITE,
-                     "weight": "bold", "align": "end", "flex": 3},
-                ]},
-                {"type": "box", "layout": "horizontal", "contents": [
-                    {"type": "text", "text": "⏱ 時長", "size": "sm", "color": GRAY, "flex": 2},
-                    {"type": "text", "text": dur_text, "size": "sm", "color": color,
-                     "weight": "bold", "align": "end", "flex": 3},
-                ]},
-                *([] if not target_wake else [
-                    {"type": "box", "layout": "horizontal", "contents": [
-                        {"type": "text", "text": "⏰ 目標", "size": "sm", "color": GRAY, "flex": 2},
-                        {"type": "text", "text": target_wake, "size": "sm", "color": VIOLET,
-                         "weight": "bold", "align": "end", "flex": 3},
-                    ]},
-                ]),
+                *detail_rows,
                 {"type": "separator", "color": "#2D3748"},
-                {"type": "text", "text": f"目標進度 (8小時) — {min(bar_pct, 100)}%",
-                 "size": "xs", "color": GRAY},
+                _fit_text(f"目標進度 (8小時) - {min(bar_pct, 100)}%", "xs", GRAY, wrap=True),
                 {"type": "box", "layout": "horizontal", "margin": "sm", "contents": [
                     {"type": "box", "layout": "vertical", "backgroundColor": color,
                      "height": "8px", "cornerRadius": "4px", "flex": bar_pct if bar_pct > 0 else 1, "contents": []},
@@ -338,7 +342,9 @@ def build_sleep_stats(record, now):
 # ── Week Report ────────────────────────────────────────────────────────────
 
 def build_week_report(records, now):
-    day_map = {r["date"]: r for r in records}
+    day_map = {}
+    for record in records:
+        day_map.setdefault(record["date"], []).append(record)
     rows = []
     total_hours = 0
     count = 0
@@ -347,20 +353,29 @@ def build_week_report(records, now):
         day = now.date() - timedelta(days=i)
         date_str = day.isoformat()
         weekday = ["一", "二", "三", "四", "五", "六", "日"][day.weekday()]
-        record = day_map.get(date_str)
-        sleep_type = record.get("sleep_type", "") if record else ""
+        day_records = day_map.get(date_str, [])
 
-        if record and record.get("sleep_start") and record.get("sleep_end"):
-            start = datetime.fromisoformat(record["sleep_start"]).astimezone(TZ)
-            end = datetime.fromisoformat(record["sleep_end"]).astimezone(TZ)
-            hours = (end - start).total_seconds() / 3600
+        completed = []
+        type_counts = {}
+        for record in day_records:
+            if record.get("sleep_start") and record.get("sleep_end"):
+                start = datetime.fromisoformat(record["sleep_start"]).astimezone(TZ)
+                end = datetime.fromisoformat(record["sleep_end"]).astimezone(TZ)
+                total_min, _, _ = _duration_parts(start, end)
+                completed.append(total_min)
+                sleep_type = record.get("sleep_type", "睡眠")
+                type_counts[sleep_type] = type_counts.get(sleep_type, 0) + 1
+
+        if completed:
+            day_minutes = sum(completed)
+            hours = day_minutes / 60
             total_hours += hours
             count += 1
-            h, m = int(hours), int((hours % 1) * 60)
+            h, m = day_minutes // 60, day_minutes % 60
             dur = f"{h}h{m:02d}m"
             bar_w = min(int(hours / 9 * 100), 100)
             color = MINT if hours >= 7 else (YELLOW if hours >= 4 else CORAL)
-            type_label = f" ({sleep_type})" if sleep_type else ""
+            type_label = " " + "/".join(f"{name}{n}" for name, n in type_counts.items())
         else:
             dur, bar_w, color, type_label = "—", 0, GRAY, ""
 
@@ -368,10 +383,8 @@ def build_week_report(records, now):
             "type": "box", "layout": "vertical", "margin": "sm",
             "contents": [
                 {"type": "box", "layout": "horizontal", "contents": [
-                    {"type": "text", "text": f"週{weekday} {day.strftime('%m/%d')}{type_label}",
-                     "size": "xs", "color": GRAY, "flex": 4},
-                    {"type": "text", "text": dur, "size": "xs", "color": color,
-                     "weight": "bold", "align": "end", "flex": 2},
+                    _fit_text(f"週{weekday} {day.strftime('%m/%d')}{type_label}", "xxs", GRAY, flex=5, wrap=True),
+                    _fit_text(dur, "xs", color, "bold", "end", flex=2),
                 ]},
                 {"type": "box", "layout": "horizontal", "margin": "xs", "contents": [
                     {"type": "box", "layout": "vertical", "backgroundColor": color if bar_w > 0 else GRAY,
