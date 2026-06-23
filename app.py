@@ -285,20 +285,57 @@ def _sleep_type_quick_reply():
     ])
 
 
-def _duration_quick_reply(now=None):
-    """快捷按鈕：分鐘選項 + 指定時間"""
-    now_str = f"（現在 {now.strftime('%H:%M')}）" if now else ""
-    items = [
-        QuickReplyItem(action=MessageAction(label="⚡ 10分鐘",  text="10分鐘")),
-        QuickReplyItem(action=MessageAction(label="💤 20分鐘",  text="20分鐘")),
-        QuickReplyItem(action=MessageAction(label="😪 30分鐘",  text="30分鐘")),
-        QuickReplyItem(action=MessageAction(label="😴 45分鐘",  text="45分鐘")),
-        QuickReplyItem(action=MessageAction(label="🛌 1小時",   text="1小時")),
-        QuickReplyItem(action=MessageAction(label="🛌 1.5小時", text="1.5小時")),
-        QuickReplyItem(action=MessageAction(label="🛌 2小時",   text="2小時")),
-        QuickReplyItem(action=MessageAction(label="⏰ 指定起床時間", text="指定起床時間")),
-    ]
+def _duration_quick_reply(sleep_type=None, now=None):
+    """依睡眠類型顯示不同時長快捷按鈕。"""
+    if sleep_type == "小睡":
+        items = [
+            QuickReplyItem(action=MessageAction(label="⚡ 10分鐘", text="10分鐘")),
+            QuickReplyItem(action=MessageAction(label="💤 20分鐘", text="20分鐘")),
+            QuickReplyItem(action=MessageAction(label="😪 30分鐘", text="30分鐘")),
+            QuickReplyItem(action=MessageAction(label="😴 45分鐘", text="45分鐘")),
+            QuickReplyItem(action=MessageAction(label="🕐 60分鐘", text="60分鐘")),
+            QuickReplyItem(action=MessageAction(label="💤 90分鐘", text="90分鐘")),
+            QuickReplyItem(action=MessageAction(label="⏰ 指定起床時間", text="指定起床時間")),
+        ]
+    elif sleep_type == "中睡":
+        items = [
+            QuickReplyItem(action=MessageAction(label="😴 3小時", text="3小時")),
+            QuickReplyItem(action=MessageAction(label="😴 4小時", text="4小時")),
+            QuickReplyItem(action=MessageAction(label="😴 5小時", text="5小時")),
+            QuickReplyItem(action=MessageAction(label="⏰ 指定起床時間", text="指定起床時間")),
+        ]
+    elif sleep_type == "大睡":
+        items = [
+            QuickReplyItem(action=MessageAction(label="🛌 7小時", text="7小時")),
+            QuickReplyItem(action=MessageAction(label="🛌 8小時", text="8小時")),
+            QuickReplyItem(action=MessageAction(label="🛌 9小時", text="9小時")),
+            QuickReplyItem(action=MessageAction(label="⏰ 指定起床時間", text="指定起床時間")),
+        ]
+    else:
+        items = [
+            QuickReplyItem(action=MessageAction(label="💤 20分鐘", text="20分鐘")),
+            QuickReplyItem(action=MessageAction(label="😪 30分鐘", text="30分鐘")),
+            QuickReplyItem(action=MessageAction(label="😴 45分鐘", text="45分鐘")),
+            QuickReplyItem(action=MessageAction(label="🛌 1小時", text="1小時")),
+            QuickReplyItem(action=MessageAction(label="⏰ 指定起床時間", text="指定起床時間")),
+        ]
     return QuickReply(items=items)
+
+
+def _duration_prompt(sleep_type, now):
+    if sleep_type == "小睡":
+        options = "下方可選 10、20、30、45、60、90 分鐘"
+    elif sleep_type == "中睡":
+        options = "下方可選 3、4、5 小時"
+    elif sleep_type == "大睡":
+        options = "下方可選 7、8、9 小時"
+    else:
+        options = "也可以直接輸入想睡多久"
+    return (
+        f"🕐 現在是 {now.strftime('%H:%M')}\n\n"
+        f"{options}\n"
+        "或輸入起床時間，例如 07:30、0730"
+    )
 
 
 def _alarm_time_quick_reply():
@@ -435,7 +472,7 @@ def handle_message(event):
                 "「07:30」「08:00」\n\n"
                 "或直接選下方快捷 👇"
             ),
-            quick_reply=_duration_quick_reply(now),
+            quick_reply=_duration_quick_reply(pending_sleep_type, now),
         ))
         return
 
@@ -463,7 +500,7 @@ def handle_message(event):
                 "「30分鐘」「1小時30分」\n"
                 "或按主選單功能離開設定"
             ),
-            quick_reply=_duration_quick_reply(now),
+            quick_reply=_duration_quick_reply(pending_sleep_type, now),
         ))
         return
 
@@ -591,10 +628,9 @@ def handle_message(event):
         reply(token, TextMessage(
             text=(
                 f"{s_info['emoji']} 【{s_info['label']}】\n\n"
-                f"🕐 現在是 {now.strftime('%H:%M')}\n\n"
-                "想睡多久？或幾點起床？👇"
+                f"{_duration_prompt(text, now)}"
             ),
-            quick_reply=_duration_quick_reply(now),
+            quick_reply=_duration_quick_reply(text, now),
         ))
 
     # ── 起床 ──
