@@ -322,10 +322,10 @@ def _sleep_until_quick_reply(wake_dt: datetime):
 
 
 def _parse_sleep_latency_minutes(text: str):
-    match = re.search(r"(\d{1,2})\s*(?:分鐘|分|min)?(?:後)?(?:真正)?入睡", text)
+    match = re.search(r"(\d{1,2})\s*(?:分鐘|分|min)?(?:後)?(?:真正)?(?:入睡|睡著)", text)
     if match:
         return max(0, min(int(match.group(1)), 60))
-    match = re.search(r"入睡\s*(\d{1,2})\s*(?:分鐘|分|min)?", text)
+    match = re.search(r"(?:入睡|睡著)\s*(\d{1,2})\s*(?:分鐘|分|min)?", text)
     if match:
         return max(0, min(int(match.group(1)), 60))
     return 15
@@ -357,22 +357,23 @@ def _sleep_cycle_message(now: datetime, latency_minutes: int = 15, asleep_at: da
         rows.append(f"{cycles} 個週期：{wake_dt.strftime('%H:%M')}（約 {hours}小時{minutes:02d}分）")
     return (
         f"現在是 {now.strftime('%H:%M')}。\n"
-        f"真正入睡時間：{asleep_at.strftime('%H:%M')}（約 {latency_minutes} 分鐘後）。\n\n"
+        f"預估 {latency_minutes} 分鐘後睡著，真正入睡時間：{asleep_at.strftime('%H:%M')}。\n"
+        "這不是小睡 10 分鐘，是用來計算睡眠週期的入睡準備時間。\n\n"
         "建議起床時間：\n"
         + "\n".join(rows)
-        + "\n\n可輸入「睡眠週期 10分鐘入睡」或「睡眠週期 01:50入睡」調整。"
+        + "\n\n可輸入「睡眠週期 10分鐘後睡著」或「睡眠週期 01:50入睡」調整。"
     )
 
 
 def _sleep_cycle_quick_reply(now: datetime, latency_minutes: int = 15, asleep_at: datetime = None):
     asleep_at = asleep_at or (now + timedelta(minutes=latency_minutes))
+    wake_4 = asleep_at + timedelta(minutes=90 * 4)
     wake_5 = asleep_at + timedelta(minutes=90 * 5)
     wake_6 = asleep_at + timedelta(minutes=90 * 6)
     return QuickReply(items=[
-        QuickReplyItem(action=MessageAction(label=f"{wake_5.strftime('%H:%M')}記錄", text=f"開始睡到 {wake_5.strftime('%H:%M')} 起床")),
-        QuickReplyItem(action=MessageAction(label=f"{wake_6.strftime('%H:%M')}記錄", text=f"開始睡到 {wake_6.strftime('%H:%M')} 起床")),
-        QuickReplyItem(action=MessageAction(label="10分入睡", text="睡眠週期 10分鐘入睡")),
-        QuickReplyItem(action=MessageAction(label="20分入睡", text="睡眠週期 20分鐘入睡")),
+        QuickReplyItem(action=MessageAction(label=f"{wake_4.strftime('%H:%M')}起床", text=f"開始睡到 {wake_4.strftime('%H:%M')} 起床")),
+        QuickReplyItem(action=MessageAction(label=f"{wake_5.strftime('%H:%M')}起床", text=f"開始睡到 {wake_5.strftime('%H:%M')} 起床")),
+        QuickReplyItem(action=MessageAction(label=f"{wake_6.strftime('%H:%M')}起床", text=f"開始睡到 {wake_6.strftime('%H:%M')} 起床")),
     ])
 
 
