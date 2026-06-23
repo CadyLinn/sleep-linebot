@@ -262,7 +262,7 @@ def _start_sleep_and_reply(token, user_id, now, sleep_type, hours, minutes, wake
     s_info = SLEEP_TYPES[sleep_type]
     wake_str = wake_dt.strftime("%H:%M")
     start_sleep(user_id, now.isoformat(), sleep_type=sleep_type, target_wake=wake_str)
-    set_alarm(user_id, wake_str)
+    set_alarm(user_id, wake_str, 1)
     set_pending(user_id, "waiting_alarm_repeat", sleep_type=wake_str)
     flex = build_sleep_countdown(
         sleep_type=sleep_type,
@@ -280,7 +280,7 @@ def _start_sleep_and_reply(token, user_id, now, sleep_type, hours, minutes, wake
         TextMessage(
             text=(
                 f"⏰ {wake_str} 的鬧鐘要通知幾次？\n"
-                "不選的話會先用預設 3 次。"
+                "不選的話會先用預設 1 次。"
             ),
             quick_reply=_alarm_repeat_quick_reply(),
         ),

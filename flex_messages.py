@@ -243,10 +243,26 @@ def build_sleep_countdown(sleep_type, sleep_type_info, start_time, wake_time, ho
                 },
                 {"type": "separator", "color": "#2D3748"},
                 {"type": "text",
-                 "text": f"⏰ 鬧鐘：{wake_time.strftime('%H:%M')} 連響 3 次",
+                 "text": f"⏰ 鬧鐘：{wake_time.strftime('%H:%M')} 預設通知 1 次",
                  "size": "xs", "color": GRAY, "align": "center"},
                 {"type": "text", "text": "起床後輸入「起床」記錄睡眠 ☀️",
                  "size": "xs", "color": GRAY, "align": "center"},
+            ],
+        },
+        "footer": {
+            "type": "box", "layout": "vertical",
+            "backgroundColor": NAVY, "paddingAll": "12px", "spacing": "sm",
+            "contents": [
+                {"type": "text", "text": "鬧鐘通知次數",
+                 "size": "xs", "color": GRAY, "align": "center"},
+                {
+                    "type": "box", "layout": "horizontal", "spacing": "sm",
+                    "contents": [
+                        _msg_btn("響1次", "響1次", VIOLET),
+                        _msg_btn("響3次", "響3次", PURPLE),
+                        _msg_btn("響5次", "響5次", CORAL),
+                    ],
+                },
             ],
         },
     }
