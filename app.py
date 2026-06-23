@@ -357,8 +357,7 @@ def _sleep_cycle_message(now: datetime, latency_minutes: int = 15, asleep_at: da
         rows.append(f"{cycles} 個週期：{wake_dt.strftime('%H:%M')}（約 {hours}小時{minutes:02d}分）")
     return (
         f"現在是 {now.strftime('%H:%M')}。\n"
-        f"預估 {latency_minutes} 分鐘後睡著，真正入睡時間：{asleep_at.strftime('%H:%M')}。\n"
-        "這不是小睡 10 分鐘，是用來計算睡眠週期的入睡準備時間。\n\n"
+        f"以 {latency_minutes} 分鐘入睡準備時間估算，真正入睡約為 {asleep_at.strftime('%H:%M')}。\n\n"
         "建議起床時間：\n"
         + "\n".join(rows)
         + "\n\n可輸入「睡眠週期 10分鐘後睡著」或「睡眠週期 01:50入睡」調整。"
