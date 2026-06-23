@@ -11,7 +11,7 @@ from linebot.v3.messaging import (
     TextMessage, FlexMessage, FlexContainer,
     QuickReply, QuickReplyItem, MessageAction,
 )
-from linebot.v3.webhooks import MessageEvent, TextMessageContent
+from linebot.v3.webhooks import FollowEvent, MessageEvent, TextMessageContent
 from apscheduler.schedulers.background import BackgroundScheduler
 import pytz
 
@@ -119,6 +119,14 @@ def reply(reply_token, messages):
         line_bot_api.reply_message(
             ReplyMessageRequest(reply_token=reply_token, messages=messages)
         )
+
+
+def _welcome_text():
+    return (
+        "歡迎使用睡眠小幫手。\n\n"
+        "輸入「說明」查看功能。\n"
+        "電腦版可直接輸入：開始睡覺、起床、今日統計、週報告、鬧鐘、睡眠建議。"
+    )
 
 
 def _parse_time(text: str):
@@ -513,6 +521,13 @@ def _should_leave_pending(pending_action, text):
     if not pending_action:
         return False
     return _is_global_command(text)
+
+
+# ── Follow Handler ──────────────────────────────────────────────────────────
+
+@handler.add(FollowEvent)
+def handle_follow(event):
+    reply(event.reply_token, TextMessage(text=_welcome_text()))
 
 
 # ── Message Handler ─────────────────────────────────────────────────────────
