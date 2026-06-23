@@ -220,3 +220,46 @@ def get_all_bedtime_reminders():
     rows = c.fetchall()
     conn.close()
     return [(r["user_id"], r["bedtime_reminder"]) for r in rows]
+
+
+# ── Reset Functions ────────────────────────────────────────────────────────
+
+def reset_today_sleep(user_id: str):
+    """清除今天（或最近未結束）的睡眠紀錄"""
+    conn = get_conn()
+    c = conn.cursor()
+    # 刪除最近一筆未結束或今天的紀錄
+    c.execute("""
+        DELETE FROM sleep_records
+        WHERE user_id=? AND id = (
+            SELECT id FROM sleep_records WHERE user_id=? ORDER BY date DESC LIMIT 1
+        )
+    """, (user_id, user_id))
+    conn.commit()
+    conn.close()
+
+
+def reset_all_settings(user_id: str):
+    """清除鬧鐘、睡前提醒、pending 狀態"""
+    conn = get_conn()
+    c = conn.cursor()
+    c.execute("""
+        UPDATE user_settings
+        SET alarm_time=NULL, alarm_count=0,
+            bedtime_reminder=NULL,
+            pending_action=NULL, pending_sleep_type=NULL
+        WHERE user_id=?
+    """, (user_id,))
+    conn.commit()
+    conn.close()
+
+
+def full_reset(user_id: str):
+    """完全重設：刪除所有睡眠紀錄＋所有設定"""
+    conn = get_conn()
+    c = conn.cursor()
+    c.execute("DELETE FROM sleep_records WHERE user_id=?", (user_id,))
+    c.execute("DELETE FROM user_settings WHERE user_id=?", (user_id,))
+    conn.commit()
+    conn.close()
+

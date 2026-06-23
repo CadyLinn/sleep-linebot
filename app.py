@@ -20,6 +20,7 @@ from db import (
     get_bedtime_reminder, get_all_alarms, get_all_bedtime_reminders,
     set_pending, get_pending, clear_pending,
     increment_alarm_count, reset_alarm_count,
+    reset_today_sleep, reset_all_settings, full_reset,
 )
 from flex_messages import (
     build_main_menu, build_sleep_stats, build_week_report,
@@ -212,6 +213,20 @@ def handle_message(event):
             reply(token, TextMessage(text="❌ 請輸入正確時間格式，例如：07:30"))
         return
 
+    if pending_action == "confirm_full_reset":
+        if text in ["確認重設", "確認", "yes", "YES"]:
+            clear_pending(user_id)
+            full_reset(user_id)
+            reply(token, TextMessage(text=(
+                "💥 完全重設完成！\n\n"
+                "所有睡眠紀錄和設定都已清除 🗑️\n"
+                "輸入「選單」重新開始 😴"
+            )))
+        else:
+            clear_pending(user_id)
+            reply(token, TextMessage(text="✅ 已取消，資料保留完整！"))
+        return
+
     # ── 主選單 ──
     if text in ["選單", "menu", "Menu", "開始", "start", "嗨", "hi", "Hi", "hello", "Hello"]:
         reply(token, FlexMessage(
@@ -352,6 +367,46 @@ def handle_message(event):
         set_bedtime_reminder(user_id, None)
         reply(token, TextMessage(text="🌙 睡前提醒已取消！"))
 
+    # ── 重設功能 ──
+    elif text in ["重設", "重新設定", "reset"]:
+        reply(token, TextMessage(
+            text="🔄 你想重設什麼？",
+            quick_reply=QuickReply(items=[
+                QuickReplyItem(action=MessageAction(label="🔄 今日紀錄", text="重設今日")),
+                QuickReplyItem(action=MessageAction(label="⏰ 鬧鐘", text="取消鬧鐘")),
+                QuickReplyItem(action=MessageAction(label="🌙 睡前提醒", text="取消提醒")),
+                QuickReplyItem(action=MessageAction(label="⚙️ 所有設定", text="重設設定")),
+                QuickReplyItem(action=MessageAction(label="💥 完全重設", text="完全重設")),
+            ]),
+        ))
+
+    elif text in ["重設今日", "重設紀錄", "重新計時"]:
+        reset_today_sleep(user_id)
+        clear_pending(user_id)
+        reply(token, TextMessage(text=(
+            "🔄 今日睡眠紀錄已清除！\n\n"
+            "點選單重新選擇睡眠類型開始計時 😴"
+        )))
+
+    elif text in ["重設設定", "清除設定"]:
+        reset_all_settings(user_id)
+        reply(token, TextMessage(text=(
+            "⚙️ 所有設定已重設！\n\n"
+            "✅ 已清除：鬧鐘、睡前提醒\n"
+            "（睡眠紀錄保留）"
+        )))
+
+    elif text in ["完全重設", "清除所有", "全部重設"]:
+        set_pending(user_id, "confirm_full_reset")
+        reply(token, TextMessage(text=(
+            "⚠️ 確定要完全重設嗎？\n\n"
+            "這將刪除：\n"
+            "• 所有睡眠歷史紀錄\n"
+            "• 鬧鐘設定\n"
+            "• 睡前提醒設定\n\n"
+            "輸入「確認重設」執行，或輸入任何其他內容取消。"
+        )))
+
     # ── 睡眠建議 ──
     elif text in ["睡眠建議", "建議", "tips", "小知識"]:
         flex = build_sleep_tips()
@@ -393,7 +448,13 @@ def handle_message(event):
             "「取消提醒」→ 刪除提醒\n\n"
             "💡 其他\n"
             "「睡眠建議」→ 睡眠小知識\n"
-            "「選單」→ 主選單"
+            "「選單」→ 主選單\n\n"
+            "🔄 重設\n"
+            "「重設」→ 顯示重設選項\n"
+            "「重設今日」→ 清除今天紀錄\n"
+            "「重設設定」→ 清除鬧鐘和提醒\n"
+            "「完全重設」→ 清除所有資料"
+
         )))
 
     else:
