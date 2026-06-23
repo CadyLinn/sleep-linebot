@@ -288,8 +288,6 @@ def build_sleep_stats(records, now):
             running = record
 
     if completed:
-        first_start = min(item[1] for item in completed)
-        last_end = max(item[2] for item in completed)
         total_min = sum(item[3] for item in completed)
         hours = total_min // 60
         minutes = total_min % 60
@@ -310,10 +308,8 @@ def build_sleep_stats(records, now):
         )
         rows = [
             ("🧾 今日紀錄", type_text),
-            ("🌙 最早入睡", first_start.strftime("%H:%M")),
-            ("☀️ 最晚起床", last_end.strftime("%H:%M")),
             ("⏱ 累計睡眠", dur_text),
-            ("📌 筆數", f"{len(completed)} 筆"),
+            ("📌 已完成", f"{len(completed)} 筆"),
         ]
         if running and running.get("sleep_start"):
             running_start = datetime.fromisoformat(running["sleep_start"]).astimezone(TZ)
