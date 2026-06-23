@@ -4,7 +4,7 @@ Sleep Line Bot 是一個 LINE Messaging API 睡眠管理機器人，提供睡眠
 
 ![Sleep Line Bot screenshot](assets/screenshot.jpg)
 
-Demo video: [assets/demo.mp4](assets/demo.mp4)
+![Sleep Line Bot demo](assets/demo.gif)
 
 ## 主要功能
 
@@ -64,7 +64,7 @@ db.py               # Firestore 資料存取
 flex_messages.py    # LINE Flex Message 樣板
 setup_rich_menu.py  # LINE 圖文選單設定
 rich_menu.jpg       # LINE 圖文選單圖片
-assets/             # README 截圖與展示影片
+assets/             # README 截圖與 GIF 展示
 requirements.txt    # Python 套件
 Dockerfile          # Cloud Run container build
 ```
