@@ -130,15 +130,21 @@ def get_latest_record(user_id: str):
 def get_today_records(user_id: str):
     conn = get_conn()
     c = conn.cursor()
-    today = datetime.now(TZ).date().isoformat()
+    today = datetime.now(TZ).date()
+    since = today - timedelta(days=1)
     c.execute("""
         SELECT * FROM sleep_records
-        WHERE user_id=? AND date=?
+        WHERE user_id=? AND date >= ?
         ORDER BY sleep_start ASC, id ASC
-    """, (user_id, today))
+    """, (user_id, since.isoformat()))
     rows = c.fetchall()
     conn.close()
-    return [dict(r) for r in rows]
+    records = [dict(r) for r in rows]
+    return [
+        record for record in records
+        if _record_report_date(record) == today
+        or _record_start_date(record) == today
+    ]
 
 
 def get_week_records(user_id: str):
@@ -146,14 +152,33 @@ def get_week_records(user_id: str):
     c = conn.cursor()
     today = datetime.now(TZ).date()
     week_ago = today - timedelta(days=6)
+    fetch_from = week_ago - timedelta(days=1)
     c.execute("""
         SELECT * FROM sleep_records
         WHERE user_id=? AND date >= ?
         ORDER BY date ASC
-    """, (user_id, week_ago.isoformat()))
+    """, (user_id, fetch_from.isoformat()))
     rows = c.fetchall()
     conn.close()
-    return [dict(r) for r in rows]
+    records = [dict(r) for r in rows]
+    return [
+        record for record in records
+        if week_ago <= _record_report_date(record) <= today
+    ]
+
+
+def _record_start_date(record):
+    if not record.get("sleep_start"):
+        return None
+    return datetime.fromisoformat(record["sleep_start"]).astimezone(TZ).date()
+
+
+def _record_report_date(record):
+    """Completed sleeps are reported on wake date; running sleeps stay on start date."""
+    timestamp = record.get("sleep_end") or record.get("sleep_start")
+    if not timestamp:
+        return None
+    return datetime.fromisoformat(timestamp).astimezone(TZ).date()
 
 
 # ── User Settings ──────────────────────────────────────────────────────────

@@ -67,6 +67,13 @@ def _duration_text(total_min):
     return f"{minutes}分鐘"
 
 
+def _record_report_date(record):
+    timestamp = record.get("sleep_end") or record.get("sleep_start")
+    if not timestamp:
+        return None
+    return datetime.fromisoformat(timestamp).astimezone(TZ).date().isoformat()
+
+
 def _info_row(label, value, value_color=WHITE):
     return {
         "type": "box",
@@ -344,7 +351,9 @@ def build_sleep_stats(records, now):
 def build_week_report(records, now):
     day_map = {}
     for record in records:
-        day_map.setdefault(record["date"], []).append(record)
+        report_date = _record_report_date(record)
+        if report_date:
+            day_map.setdefault(report_date, []).append(record)
     rows = []
     total_hours = 0
     count = 0
