@@ -179,18 +179,24 @@ def _parse_duration_to_minutes(text: str):
 
 
 def _parse_repeat_count(text: str):
-    m = re.search(r"(?:鬧鐘)?(?:響|通知|提醒)?\s*(\d{1,2})\s*次", text)
+    number_words = {
+        "一": 1, "二": 2, "兩": 2, "三": 3, "四": 4, "五": 5,
+        "六": 6, "七": 7, "八": 8, "九": 9, "十": 10,
+    }
+    m = re.search(r"(?:鬧鐘\s*)?(?:響|通知|提醒)?\s*(\d{1,2}|[一二兩三四五六七八九十])\s*次", text)
     if not m:
         return None
-    return max(1, min(int(m.group(1)), 10))
+    raw_count = m.group(1)
+    count = number_words.get(raw_count, int(raw_count) if raw_count.isdigit() else 1)
+    return max(1, min(count, 10))
 
 
 def _strip_repeat_text(text: str):
-    return re.sub(r"(?:鬧鐘)?(?:響|通知|提醒)?\s*\d{1,2}\s*次", "", text).strip()
+    return re.sub(r"(?:鬧鐘\s*)?(?:響|通知|提醒)?\s*(?:\d{1,2}|[一二兩三四五六七八九十])\s*次", "", text).strip()
 
 
 def _is_alarm_repeat_command(text: str):
-    return bool(re.fullmatch(r"(?:鬧鐘)?(?:響|通知|提醒)\s*\d{1,2}\s*次", text.strip()))
+    return bool(re.fullmatch(r"(?:鬧鐘\s*)?(?:響|通知|提醒)\s*(?:\d{1,2}|[一二兩三四五六七八九十])\s*次", text.strip()))
 
 
 def _parse_alarm_request(text: str, now: datetime):
@@ -798,6 +804,20 @@ def handle_message(event):
             set_pending(user_id, "waiting_alarm_time")
             reply(token, TextMessage(
                 text=_alarm_prompt(),
+                quick_reply=_alarm_time_quick_reply(),
+            ))
+
+    elif _is_alarm_repeat_command(text):
+        repeat_total = _parse_repeat_count(text)
+        alarm = get_alarm(user_id)
+        if alarm and alarm.get("alarm_time") and repeat_total:
+            set_alarm(user_id, alarm["alarm_time"], repeat_total)
+            reply(token, TextMessage(text=(
+                f"好，{alarm['alarm_time']} 會響 {repeat_total} 次。"
+            )))
+        else:
+            reply(token, TextMessage(
+                text="目前還沒有鬧鐘，請先設定鬧鐘時間。",
                 quick_reply=_alarm_time_quick_reply(),
             ))
 
