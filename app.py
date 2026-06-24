@@ -64,13 +64,16 @@ def send_push(user_id: str, text: str):
         line_bot_api.push_message(
             PushMessageRequest(to=user_id, messages=[TextMessage(text=text)])
         )
+    logger.info("Pushed alarm/reminder message to user_id=%s", user_id)
 
 
 def check_alarms():
     now = datetime.now(TZ)
     current_time = now.strftime("%H:%M")
     today = now.date().isoformat()
-    for user_id, alarm_time, alarm_count, repeat_total, last_trigger_date in get_all_alarms():
+    alarms = get_all_alarms()
+    logger.info("Checking alarms at %s, active alarms=%s", current_time, len(alarms))
+    for user_id, alarm_time, alarm_count, repeat_total, last_trigger_date in alarms:
         should_start_today = alarm_time == current_time and last_trigger_date != today
         should_continue = last_trigger_date == today and alarm_count > 0 and alarm_count < repeat_total
         if should_start_today or should_continue:
@@ -81,6 +84,10 @@ def check_alarms():
             msg = ALARM_MESSAGES[msg_index].format(time=current_time)
             send_push(user_id, msg)
             increment_alarm_count(user_id)
+            logger.info(
+                "Alarm triggered user_id=%s alarm_time=%s count=%s repeat_total=%s",
+                user_id, alarm_time, alarm_count + 1, repeat_total,
+            )
         elif last_trigger_date != today and alarm_count > 0:
             reset_alarm_count(user_id)
     for user_id, reminder_time in get_all_bedtime_reminders():
@@ -107,6 +114,15 @@ def callback():
 @app.route("/", methods=["GET"])
 def health():
     return "Sleep Bot is running! 😴"
+
+
+@app.route("/tasks/check-alarms", methods=["GET", "POST"])
+def check_alarms_task():
+    expected_secret = os.environ.get("CRON_SECRET")
+    if expected_secret and request.args.get("secret") != expected_secret:
+        abort(403)
+    check_alarms()
+    return "OK"
 
 
 # ── Helpers ─────────────────────────────────────────────────────────────────
