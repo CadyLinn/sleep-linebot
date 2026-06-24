@@ -118,9 +118,6 @@ def health():
 
 @app.route("/tasks/check-alarms", methods=["GET", "POST"])
 def check_alarms_task():
-    expected_secret = os.environ.get("CRON_SECRET")
-    if expected_secret and request.args.get("secret") != expected_secret:
-        abort(403)
     check_alarms()
     return "OK"
 
