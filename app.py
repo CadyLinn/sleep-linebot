@@ -55,14 +55,21 @@ ALARM_MESSAGES = [
 # ── Alarm Logic（由 Cloud Scheduler 每分鐘呼叫 /tasks/check-alarms 觸發）──────
 
 
-def send_push(user_id: str, text: str):
+def send_push(user_id: str, text: str, quick_reply=None):
     with ApiClient(configuration) as api_client:
         line_bot_api = MessagingApi(api_client)
+        msg = TextMessage(text=text, quick_reply=quick_reply)
         line_bot_api.push_message(
-            PushMessageRequest(to=user_id, messages=[TextMessage(text=text)])
+            PushMessageRequest(to=user_id, messages=[msg])
         )
-    logger.info("Pushed alarm/reminder message to user_id=%s", user_id)
+    logger.info("Pushed message to user_id=%s", user_id)
 
+
+# 鬧鐘用 Quick Reply「起床 ☀️」+「取消這次紀錄」
+_ALARM_QR = QuickReply(items=[
+    QuickReplyItem(action=MessageAction(label="起床 ☀️", text="起床")),
+    QuickReplyItem(action=MessageAction(label="取消這次紀錄", text="取消紀錄")),
+])
 
 def check_alarms():
     now = datetime.now(TZ)
@@ -79,11 +86,20 @@ def check_alarms():
                 alarm_count = 0
             msg_index = min(alarm_count, len(ALARM_MESSAGES) - 1)
             msg = ALARM_MESSAGES[msg_index].format(time=current_time)
-            send_push(user_id, msg)
+            is_last = (alarm_count + 1 >= repeat_total)
+            # 每次鬧鐘都帶「起床」+「取消紀錄」快速按鈕
+            send_push(user_id, msg, quick_reply=_ALARM_QR)
             increment_alarm_count(user_id)
+            # 最後一次鬧鐘後加送提醒
+            if is_last:
+                send_push(
+                    user_id,
+                    "☀️ 鬧鐘已結束\n\n起床後記得傳「起床」完成紀錄！\n如果沒有真的睡，可以選「取消這次紀錄」↓",
+                    quick_reply=_ALARM_QR,
+                )
             logger.info(
-                "Alarm triggered user_id=%s alarm_time=%s count=%s repeat_total=%s",
-                user_id, alarm_time, alarm_count + 1, repeat_total,
+                "Alarm triggered user_id=%s count=%s/%s",
+                user_id, alarm_count + 1, repeat_total,
             )
         elif last_trigger_date != today and alarm_count > 0:
             reset_alarm_count(user_id)
@@ -919,6 +935,21 @@ def handle_message(event):
             ),
             quick_reply=_duration_quick_reply(text, now),
         ))
+
+    # ── 取消這次睡眠紀錄 ──
+    elif text in ["取消紀錄", "取消這次紀錄", "取消睡眠", "取消"]:
+        record = get_latest_record(user_id)
+        if not record or record.get("sleep_end"):
+            reply(token, TextMessage(text="❌ 沒有進行中的睡眠紀錄可以取消"))
+        else:
+            reset_today_sleep(user_id)
+            delete_alarm(user_id)
+            clear_pending(user_id)
+            reply(token, TextMessage(text=(
+                "🗑️ 已取消這次睡眠紀錄\n\n"
+                "鬧鐘也一併清除了！\n"
+                "下次要睡覺時重新選擇睡眠類型即可 😴"
+            )))
 
     # ── 起床 ──
     elif text in ["起床", "醒來", "起床了"]:
