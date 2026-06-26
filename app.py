@@ -12,7 +12,6 @@ from linebot.v3.messaging import (
     QuickReply, QuickReplyItem, MessageAction,
 )
 from linebot.v3.webhooks import FollowEvent, MessageEvent, TextMessageContent
-from apscheduler.schedulers.background import BackgroundScheduler
 import pytz
 
 from db import (
@@ -53,9 +52,7 @@ ALARM_MESSAGES = [
     "⏰⏰⏰ 最後一次提醒！！\n快起床！！！💥 今天的任務在等你！",
 ]
 
-# ── Scheduler ──────────────────────────────────────────────────────────────
-
-scheduler = BackgroundScheduler(timezone=TZ)
+# ── Alarm Logic（由 Cloud Scheduler 每分鐘呼叫 /tasks/check-alarms 觸發）──────
 
 
 def send_push(user_id: str, text: str):
@@ -95,8 +92,7 @@ def check_alarms():
             send_push(user_id, f"🌙 睡前提醒！現在是 {current_time}\n準備放鬆一下，準備睡覺吧～ 😴")
 
 
-scheduler.add_job(check_alarms, "cron", minute="*")
-scheduler.start()
+
 
 # ── Webhook ────────────────────────────────────────────────────────────────
 
