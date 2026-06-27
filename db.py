@@ -137,6 +137,7 @@ def set_alarm(user_id: str, time_str: str, repeat_total: int = 1):
         "alarm_count": 0,
         "alarm_repeat_total": repeat_total,
         "alarm_last_trigger_date": None,
+        "alarm_last_trigger_minute": None,
     })
 
 
@@ -149,6 +150,7 @@ def get_alarm(user_id: str):
         "alarm_count": s.get("alarm_count", 0),
         "alarm_repeat_total": s.get("alarm_repeat_total", 1),
         "alarm_last_trigger_date": s.get("alarm_last_trigger_date"),
+        "alarm_last_trigger_minute": s.get("alarm_last_trigger_minute"),
     }
 
 
@@ -165,6 +167,7 @@ def set_alarm_repeat(user_id: str, repeat_total: int):
         "alarm_repeat_total": repeat_total,
         "alarm_count": 0,
         "alarm_last_trigger_date": None,
+        "alarm_last_trigger_minute": None,
     })
     return True
 
@@ -174,16 +177,40 @@ def delete_alarm(user_id: str):
         "alarm_time": None,
         "alarm_count": 0,
         "alarm_last_trigger_date": None,
+        "alarm_last_trigger_minute": None,
     })
 
 
 def increment_alarm_count(user_id: str):
-    today = datetime.now(TZ).date().isoformat()
+    now = datetime.now(TZ)
+    today = now.date().isoformat()
     ref = _settings_ref(user_id)
     ref.update({
         "alarm_count": firestore.Increment(1),
         "alarm_last_trigger_date": today,
+        "alarm_last_trigger_minute": now.strftime("%Y-%m-%d %H:%M"),
     })
+
+
+def claim_alarm_trigger(user_id: str, trigger_minute: str):
+    """用 transaction 確保同一位使用者同一分鐘只會觸發一次鬧鐘。"""
+    transaction = _db.transaction()
+    ref = _settings_ref(user_id)
+
+    @firestore.transactional
+    def _claim(tx):
+        doc = ref.get(transaction=tx)
+        data = doc.to_dict() if doc.exists else {}
+        if data.get("alarm_last_trigger_minute") == trigger_minute:
+            return False
+        tx.update(ref, {
+            "alarm_count": firestore.Increment(1),
+            "alarm_last_trigger_date": trigger_minute.split(" ")[0],
+            "alarm_last_trigger_minute": trigger_minute,
+        })
+        return True
+
+    return _claim(transaction)
 
 
 def reset_alarm_count(user_id: str):
@@ -191,7 +218,7 @@ def reset_alarm_count(user_id: str):
 
 
 def get_all_alarms():
-    """回傳所有有設定鬧鐘的 (user_id, alarm_time, alarm_count, repeat_total, last_trigger_date)"""
+    """回傳所有有設定鬧鐘的 (user_id, alarm_time, alarm_count, repeat_total, last_trigger_date, last_trigger_minute)"""
     docs = _settings_col().where("alarm_time", "!=", None).stream()
     result = []
     for doc in docs:
@@ -202,6 +229,7 @@ def get_all_alarms():
             d.get("alarm_count", 0),
             d.get("alarm_repeat_total", 1),
             d.get("alarm_last_trigger_date"),
+            d.get("alarm_last_trigger_minute"),
         ))
     return result
 
@@ -244,6 +272,7 @@ def reset_all_settings(user_id: str):
         "alarm_count": 0,
         "alarm_repeat_total": 1,
         "alarm_last_trigger_date": None,
+        "alarm_last_trigger_minute": None,
         "bedtime_reminder": None,
         "pending_action": None,
         "pending_sleep_type": None,

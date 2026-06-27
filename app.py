@@ -19,7 +19,7 @@ from db import (
     set_alarm, get_alarm, delete_alarm, set_bedtime_reminder,
     get_bedtime_reminder, get_all_alarms, get_all_bedtime_reminders,
     set_pending, get_pending, clear_pending,
-    increment_alarm_count, reset_alarm_count,
+    claim_alarm_trigger, reset_alarm_count,
     reset_today_sleep, reset_all_settings, full_reset,
 )
 from flex_messages import (
@@ -74,12 +74,35 @@ _ALARM_QR = QuickReply(items=[
 def check_alarms():
     now = datetime.now(TZ)
     current_time = now.strftime("%H:%M")
+    current_minute_key = now.strftime("%Y-%m-%d %H:%M")
     today = now.date().isoformat()
     alarms = get_all_alarms()
     logger.info("Checking alarms at %s, active alarms=%s", current_time, len(alarms))
-    for user_id, alarm_time, alarm_count, repeat_total, last_trigger_date in alarms:
-        should_start_today = alarm_time == current_time and last_trigger_date != today
-        should_continue = last_trigger_date == today and alarm_count > 0 and alarm_count < repeat_total
+    for user_id, alarm_time, alarm_count, repeat_total, last_trigger_date, last_trigger_minute in alarms:
+        try:
+            alarm_count = int(alarm_count or 0)
+            repeat_total = max(1, min(int(repeat_total or 1), 3))
+        except (TypeError, ValueError):
+            logger.warning("Skipping alarm with invalid counts user_id=%s alarm_count=%s repeat_total=%s", user_id, alarm_count, repeat_total)
+            continue
+
+        if last_trigger_minute == current_minute_key:
+            logger.info("Alarm already triggered this minute user_id=%s alarm_time=%s", user_id, alarm_time)
+            continue
+
+        try:
+            alarm_dt = TZ.localize(datetime.strptime(f"{today} {alarm_time}", "%Y-%m-%d %H:%M"))
+        except (TypeError, ValueError):
+            logger.warning("Skipping invalid alarm user_id=%s alarm_time=%s", user_id, alarm_time)
+            continue
+
+        minutes_since_alarm = int((now.replace(second=0, microsecond=0) - alarm_dt).total_seconds() // 60)
+        should_start_today = minutes_since_alarm == 0 and last_trigger_date != today
+        should_continue = (
+            last_trigger_date == today
+            and 0 < minutes_since_alarm < repeat_total
+            and alarm_count == minutes_since_alarm
+        )
         if should_start_today or should_continue:
             if should_start_today:
                 reset_alarm_count(user_id)
@@ -87,8 +110,10 @@ def check_alarms():
             msg_index = min(alarm_count, len(ALARM_MESSAGES) - 1)
             msg = ALARM_MESSAGES[msg_index].format(time=current_time)
             # 每次鬧鐘都帶「起床」+「取消紀錄」快速按鈕
+            if not claim_alarm_trigger(user_id, current_minute_key):
+                logger.info("Alarm claim skipped user_id=%s minute=%s", user_id, current_minute_key)
+                continue
             send_push(user_id, msg, quick_reply=_ALARM_QR)
-            increment_alarm_count(user_id)
             logger.info(
                 "Alarm triggered user_id=%s count=%s/%s",
                 user_id, alarm_count + 1, repeat_total,
