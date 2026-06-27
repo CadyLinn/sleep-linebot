@@ -16,7 +16,7 @@ import pytz
 
 from db import (
     init_db, start_sleep, end_sleep, get_latest_record, get_today_records, get_week_records,
-    set_alarm, get_alarm, delete_alarm, set_bedtime_reminder,
+    set_alarm, get_alarm, delete_alarm,
     get_all_alarms,
     set_pending, get_pending, clear_pending,
     claim_alarm_trigger, reset_alarm_count, has_today_big_sleep,
@@ -714,7 +714,7 @@ def _is_global_command(text):
     clean = _clean_command_text(text)
     if clean in GLOBAL_COMMANDS:
         return True
-    if clean.startswith(("鬧鐘 ", "設定鬧鐘 ", "睡前提醒 ", "就寢提醒 ")):
+    if clean.startswith(("鬧鐘 ", "設定鬧鐘 ")):
         return True
     return any(
         keyword in clean
@@ -903,15 +903,6 @@ def handle_message(event):
                 text="請選擇或輸入通知次數，例如：響3次",
                 quick_reply=_alarm_repeat_quick_reply(),
             ))
-        return
-
-    # ── 等待睡前提醒時間 ──
-    if pending_action == "waiting_bedtime_time":
-        clear_pending(user_id)
-        reply(token, TextMessage(text=(
-            "為了節省推播額度，睡前提醒已停用。\n\n"
-            "目前只有鬧鐘響會主動通知。"
-        )))
         return
 
     if pending_action == "waiting_sleep_until_time":
@@ -1244,25 +1235,6 @@ def handle_message(event):
         delete_alarm(user_id)
         reply(token, TextMessage(text="⏰ 鬧鐘已取消！"))
 
-    # ── 睡前提醒 ──
-    elif text in ["睡前提醒", "就寢提醒", "設定提醒"]:
-        set_bedtime_reminder(user_id, None)
-        reply(token, TextMessage(text=(
-            "為了節省推播額度，睡前提醒已停用。\n\n"
-            "目前只有鬧鐘響會主動通知。"
-        )))
-
-    elif re.match(r"^(睡前提醒|就寢提醒)\s+\d{1,2}:\d{2}$", text):
-        set_bedtime_reminder(user_id, None)
-        reply(token, TextMessage(text=(
-            "為了節省推播額度，睡前提醒已停用。\n\n"
-            "目前只有鬧鐘響會主動通知。"
-        )))
-
-    elif text in ["取消提醒", "刪除提醒"]:
-        set_bedtime_reminder(user_id, None)
-        reply(token, TextMessage(text="🌙 睡前提醒已取消！"))
-
     # ── 重設 ──
     elif text in ["重設", "重新設定", "reset"]:
         reply(token, TextMessage(
@@ -1270,7 +1242,6 @@ def handle_message(event):
             quick_reply=QuickReply(items=[
                 QuickReplyItem(action=MessageAction(label="🔄 今日紀錄", text="重設今日")),
                 QuickReplyItem(action=MessageAction(label="⏰ 鬧鐘",    text="取消鬧鐘")),
-                QuickReplyItem(action=MessageAction(label="🌙 取消提醒", text="取消提醒")),
                 QuickReplyItem(action=MessageAction(label="⚙️ 所有設定", text="重設設定")),
                 QuickReplyItem(action=MessageAction(label="💥 完全重設", text="完全重設")),
             ]),
@@ -1314,12 +1285,11 @@ def handle_message(event):
             TextMessage(
                 text=(
                     "也可以使用：\n"
-                    "睡眠週期、算可睡多久、睡前提醒。"
+                    "睡眠週期、算可睡多久。"
                 ),
                 quick_reply=QuickReply(items=[
                     QuickReplyItem(action=MessageAction(label="睡眠週期", text="睡眠週期")),
                     QuickReplyItem(action=MessageAction(label="算可睡多久", text="算可睡多久")),
-                    QuickReplyItem(action=MessageAction(label="睡前提醒", text="睡前提醒")),
                 ]),
             ),
         ])
@@ -1369,8 +1339,6 @@ def handle_message(event):
             "「鬧鐘 07:30 3次」→ 直接設定3次\n"
             "「鬧鐘 30分鐘」→ 30 分鐘後提醒\n"
             "「取消鬧鐘」→ 刪除\n\n"
-            "🌙 睡前提醒\n"
-            "「睡眠建議」裡可找到；目前為省推播額度停用主動通知\n\n"
             "🔄 重設\n"
             "「重設」→ 顯示重設選項\n\n"
             "💡 其他\n"
@@ -1380,7 +1348,7 @@ def handle_message(event):
             "「選單」→ 主選單\n\n"
             "💻 電腦版 LINE 可直接輸入\n"
             "開始睡覺 / 起床 / 今日統計 / 週報告\n"
-            "鬧鐘 / 睡眠建議 / 睡眠週期 / 算可睡多久 / 睡前提醒"
+            "鬧鐘 / 睡眠建議 / 睡眠週期 / 算可睡多久"
         )))
 
     # ── 預設回覆（嘗試解析時長）──

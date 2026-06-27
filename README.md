@@ -73,7 +73,7 @@ Dockerfile          # Cloud Run container build
 
 ```text
 sleep_records   # 睡眠紀錄
-user_settings   # 鬧鐘、睡前提醒、互動狀態
+user_settings   # 鬧鐘、互動狀態
 ```
 
 ## 環境變數

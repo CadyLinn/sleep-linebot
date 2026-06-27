@@ -245,23 +245,6 @@ def get_all_alarms():
 
 # ── Bedtime Reminder ─────────────────────────────────────────────────────────
 
-def set_bedtime_reminder(user_id: str, time_str):
-    _set_fields(user_id, {"bedtime_reminder": time_str})
-
-
-def get_bedtime_reminder(user_id: str):
-    return _get_settings(user_id).get("bedtime_reminder")
-
-
-def get_all_bedtime_reminders():
-    """回傳所有有設定睡前提醒的 (user_id, bedtime_reminder)"""
-    docs = _settings_col().where("bedtime_reminder", "!=", None).stream()
-    result = []
-    for doc in docs:
-        d = doc.to_dict()
-        result.append((doc.id, d.get("bedtime_reminder")))
-    return result
-
 # ── Reset ────────────────────────────────────────────────────────────────────
 
 def reset_today_sleep(user_id: str):
@@ -290,7 +273,7 @@ def delete_latest_open_sleep(user_id: str):
 
 
 def reset_all_settings(user_id: str):
-    """清除鬧鐘、睡前提醒、pending 狀態"""
+    """清除鬧鐘、互動狀態，並移除舊提醒欄位"""
     _set_fields(user_id, {
         "alarm_time": None,
         "alarm_count": 0,
