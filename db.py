@@ -151,14 +151,6 @@ def set_alarm(user_id: str, time_str: str, repeat_total: int = 1):
     })
 
 
-def get_alarm_repeat_limit_warned(user_id: str):
-    return bool(_get_settings(user_id).get("alarm_repeat_limit_warned"))
-
-
-def mark_alarm_repeat_limit_warned(user_id: str):
-    _set_fields(user_id, {"alarm_repeat_limit_warned": True})
-
-
 def get_alarm(user_id: str):
     s = _get_settings(user_id)
     if not s.get("alarm_time"):
@@ -305,7 +297,6 @@ def reset_all_settings(user_id: str):
         "alarm_repeat_total": 1,
         "alarm_last_trigger_date": None,
         "alarm_last_trigger_minute": None,
-        "alarm_repeat_limit_warned": False,
         "bedtime_reminder": None,
         "pending_action": None,
         "pending_sleep_type": None,

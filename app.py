@@ -17,10 +17,9 @@ import pytz
 from db import (
     init_db, start_sleep, end_sleep, get_latest_record, get_today_records, get_week_records,
     set_alarm, get_alarm, delete_alarm, set_bedtime_reminder,
-    get_bedtime_reminder, get_all_alarms, get_all_bedtime_reminders,
+    get_all_alarms,
     set_pending, get_pending, clear_pending,
     claim_alarm_trigger, reset_alarm_count, has_today_big_sleep,
-    get_alarm_repeat_limit_warned, mark_alarm_repeat_limit_warned,
     reset_today_sleep, delete_latest_open_sleep, reset_all_settings, full_reset,
 )
 from flex_messages import (
@@ -125,12 +124,6 @@ def check_alarms():
             )
         elif last_trigger_date != today and alarm_count > 0:
             reset_alarm_count(user_id)
-    for user_id, reminder_time in get_all_bedtime_reminders():
-        if reminder_time == current_time:
-            send_push(user_id, f"🌙 睡前提醒！現在是 {current_time}\n準備放鬆一下，準備睡覺吧～ 😴")
-
-
-
 
 # ── Webhook ────────────────────────────────────────────────────────────────
 
@@ -286,18 +279,6 @@ def _is_over_alarm_repeat_limit(text: str):
     return bool(count and count > MAX_ALARM_REPEAT)
 
 
-def _reply_repeat_limit_once(token, user_id, time_str=None):
-    if get_alarm_repeat_limit_warned(user_id):
-        return False
-    mark_alarm_repeat_limit_warned(user_id)
-    suffix = f"\n已先設定為 {time_str} 通知 {MAX_ALARM_REPEAT} 次。" if time_str else ""
-    reply(token, TextMessage(text=(
-        f"鬧鐘最多只能通知 {MAX_ALARM_REPEAT} 次，避免消耗太多推播額度。"
-        f"{suffix}"
-    )))
-    return True
-
-
 def _strip_repeat_text(text: str):
     return re.sub(r"(?:鬧鐘\s*)?(?:響|通知|提醒)?\s*(?:\d{1,2}|[一二兩三四五六七八九十])\s*次", "", text).strip()
 
@@ -336,7 +317,6 @@ def _set_alarm_or_ask_repeat(token, user_id, time_str, repeat_total, original_te
     if _is_over_alarm_repeat_limit(original_text):
         clear_pending(user_id)
         set_alarm(user_id, time_str, MAX_ALARM_REPEAT)
-        _reply_repeat_limit_once(token, user_id, time_str)
         return
     if _parse_repeat_count(original_text):
         clear_pending(user_id)
@@ -794,7 +774,6 @@ def handle_message(event):
         if _is_over_alarm_repeat_limit(text):
             clear_pending(user_id)
             set_alarm(user_id, pending_sleep_type, MAX_ALARM_REPEAT)
-            _reply_repeat_limit_once(token, user_id, pending_sleep_type)
             return
         repeat_total = _parse_repeat_count(text)
         if repeat_total:
@@ -814,20 +793,11 @@ def handle_message(event):
 
     # ── 等待睡前提醒時間 ──
     if pending_action == "waiting_bedtime_time":
-        time_str = _parse_time(text)
-        if time_str:
-            clear_pending(user_id)
-            set_bedtime_reminder(user_id, time_str)
-            reply(token, TextMessage(text=(
-                f"🌙 睡前提醒設定成功！\n"
-                f"每天 {time_str} 會提醒你準備睡覺 😴"
-            )))
-        else:
-            reply(token, TextMessage(text=(
-                "❌ 我沒看懂提醒時間\n\n"
-                "可以輸入 22:30 或 2230\n"
-                "也可以直接按其他主選單功能離開"
-            )))
+        clear_pending(user_id)
+        reply(token, TextMessage(text=(
+            "為了節省推播額度，睡前提醒已停用。\n\n"
+            "目前只有鬧鐘響會主動通知。"
+        )))
         return
 
     if pending_action == "waiting_sleep_until_time":
@@ -1134,7 +1104,6 @@ def handle_message(event):
         if alarm and alarm.get("alarm_time") and repeat_total:
             set_alarm(user_id, alarm["alarm_time"], repeat_total)
             if over_limit:
-                _reply_repeat_limit_once(token, user_id, alarm["alarm_time"])
                 return
             reply(token, TextMessage(text=(
                 f"好，{alarm['alarm_time']} 會響 {repeat_total} 次。"
@@ -1158,18 +1127,18 @@ def handle_message(event):
 
     # ── 睡前提醒 ──
     elif text in ["睡前提醒", "就寢提醒", "設定提醒"]:
-        set_pending(user_id, "waiting_bedtime_time")
+        set_bedtime_reminder(user_id, None)
         reply(token, TextMessage(text=(
-            "🌙 請輸入睡前提醒時間\n"
-            "例如：22:30 或 2230\n\n"
-            "也可以直接按其他主選單功能離開"
+            "為了節省推播額度，睡前提醒已停用。\n\n"
+            "目前只有鬧鐘響會主動通知。"
         )))
 
     elif re.match(r"^(睡前提醒|就寢提醒)\s+\d{1,2}:\d{2}$", text):
-        time_str = _parse_time(text.split()[-1])
-        if time_str:
-            set_bedtime_reminder(user_id, time_str)
-            reply(token, TextMessage(text=f"🌙 睡前提醒設定成功！每天 {time_str} 提醒你 😴"))
+        set_bedtime_reminder(user_id, None)
+        reply(token, TextMessage(text=(
+            "為了節省推播額度，睡前提醒已停用。\n\n"
+            "目前只有鬧鐘響會主動通知。"
+        )))
 
     elif text in ["取消提醒", "刪除提醒"]:
         set_bedtime_reminder(user_id, None)
@@ -1182,7 +1151,7 @@ def handle_message(event):
             quick_reply=QuickReply(items=[
                 QuickReplyItem(action=MessageAction(label="🔄 今日紀錄", text="重設今日")),
                 QuickReplyItem(action=MessageAction(label="⏰ 鬧鐘",    text="取消鬧鐘")),
-                QuickReplyItem(action=MessageAction(label="🌙 睡前提醒", text="取消提醒")),
+                QuickReplyItem(action=MessageAction(label="🌙 取消提醒", text="取消提醒")),
                 QuickReplyItem(action=MessageAction(label="⚙️ 所有設定", text="重設設定")),
                 QuickReplyItem(action=MessageAction(label="💥 完全重設", text="完全重設")),
             ]),
@@ -1200,7 +1169,7 @@ def handle_message(event):
         reset_all_settings(user_id)
         reply(token, TextMessage(text=(
             "⚙️ 所有設定已重設！\n\n"
-            "✅ 已清除：鬧鐘、睡前提醒\n"
+            "✅ 已清除：鬧鐘、舊提醒設定\n"
             "（睡眠紀錄保留）"
         )))
 
@@ -1211,7 +1180,7 @@ def handle_message(event):
             "這將刪除：\n"
             "• 所有睡眠歷史紀錄\n"
             "• 鬧鐘設定\n"
-            "• 睡前提醒設定\n\n"
+            "• 舊提醒設定\n\n"
             "輸入「確認重設」執行，或任意其他文字取消。"
         )))
 
@@ -1277,9 +1246,8 @@ def handle_message(event):
             "「鬧鐘 07:30 3次」→ 直接設定3次\n"
             "「鬧鐘 30分鐘」→ 30 分鐘後提醒\n"
             "「取消鬧鐘」→ 刪除\n\n"
-            "🌙 睡前提醒\n"
-            "「睡前提醒」→ 設定\n"
-            "「取消提醒」→ 刪除\n\n"
+            "🌙 推播省量\n"
+            "只有鬧鐘響會主動通知；睡前提醒已停用\n\n"
             "🔄 重設\n"
             "「重設」→ 顯示重設選項\n\n"
             "💡 其他\n"
