@@ -260,7 +260,6 @@ def build_sleep_countdown(sleep_type, sleep_type_info, start_time, wake_time, ho
                     "contents": [
                         _msg_btn("響1次", "鬧鐘響1次", VIOLET),
                         _msg_btn("響3次", "鬧鐘響3次", PURPLE),
-                        _msg_btn("響5次", "鬧鐘響5次", CORAL),
                     ],
                 },
             ],

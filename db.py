@@ -131,7 +131,7 @@ def clear_pending(user_id: str):
 # ── Alarm ────────────────────────────────────────────────────────────────────
 
 def set_alarm(user_id: str, time_str: str, repeat_total: int = 1):
-    repeat_total = max(1, min(int(repeat_total or 1), 10))
+    repeat_total = max(1, min(int(repeat_total or 1), 3))
     _set_fields(user_id, {
         "alarm_time": time_str,
         "alarm_count": 0,
@@ -157,7 +157,7 @@ def get_alarm_settings(user_id: str):
 
 
 def set_alarm_repeat(user_id: str, repeat_total: int):
-    repeat_total = max(1, min(int(repeat_total or 1), 10))
+    repeat_total = max(1, min(int(repeat_total or 1), 3))
     s = _get_settings(user_id)
     if not s.get("alarm_time"):
         return False

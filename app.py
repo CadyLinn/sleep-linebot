@@ -86,17 +86,9 @@ def check_alarms():
                 alarm_count = 0
             msg_index = min(alarm_count, len(ALARM_MESSAGES) - 1)
             msg = ALARM_MESSAGES[msg_index].format(time=current_time)
-            is_last = (alarm_count + 1 >= repeat_total)
             # 每次鬧鐘都帶「起床」+「取消紀錄」快速按鈕
             send_push(user_id, msg, quick_reply=_ALARM_QR)
             increment_alarm_count(user_id)
-            # 最後一次鬧鐘後加送提醒
-            if is_last:
-                send_push(
-                    user_id,
-                    "☀️ 鬧鐘已結束\n\n起床後記得傳「起床」完成紀錄！\n如果沒有真的睡，可以選「取消這次紀錄」↓",
-                    quick_reply=_ALARM_QR,
-                )
             logger.info(
                 "Alarm triggered user_id=%s count=%s/%s",
                 user_id, alarm_count + 1, repeat_total,
@@ -251,7 +243,7 @@ def _parse_repeat_count(text: str):
         return None
     raw_count = m.group(1)
     count = number_words.get(raw_count, int(raw_count) if raw_count.isdigit() else 1)
-    return max(1, min(count, 10))
+    return max(1, min(count, 3))
 
 
 def _strip_repeat_text(text: str):
@@ -426,7 +418,7 @@ def _start_sleep_and_reply(token, user_id, now, sleep_type, hours, minutes, wake
         TextMessage(
             text=(
                 f"⏰ {wake_str} 的鬧鐘要通知幾次？\n"
-                "不選的話會先用預設 1 次。點卡片上的「響3次」或「響5次」可更改。"
+                "不選的話會先用預設 1 次。點卡片上的「響3次」可更改。"
             ),
         ),
     ])
@@ -459,7 +451,7 @@ def _set_wake_for_running_sleep_and_reply(token, user_id, now, sleep_type, hours
         ),
         TextMessage(text=(
             f"⏰ {wake_str} 的鬧鐘預設通知 1 次。\n"
-            "可點卡片上的「響3次」或「響5次」更改。"
+            "可點卡片上的「響3次」更改。"
         )),
     ])
 
@@ -541,7 +533,6 @@ def _alarm_repeat_quick_reply():
     return QuickReply(items=[
         QuickReplyItem(action=MessageAction(label="響1次", text="響1次")),
         QuickReplyItem(action=MessageAction(label="響3次", text="響3次")),
-        QuickReplyItem(action=MessageAction(label="響5次", text="響5次")),
         QuickReplyItem(action=MessageAction(label="❌ 取消", text="取消鬧鐘")),
     ])
 
