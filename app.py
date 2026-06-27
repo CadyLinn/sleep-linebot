@@ -270,6 +270,20 @@ def _parse_duration_for_sleep_type(text: str, sleep_type: str):
     return _parse_duration_to_minutes(text)
 
 
+def _parse_alarm_duration_for_sleep_type(text: str, sleep_type: str):
+    """修改睡眠鬧鐘時，只接受該睡眠類型合理範圍。"""
+    minutes = _parse_duration_for_sleep_type(text, sleep_type)
+    if not minutes:
+        return None
+    if sleep_type == "小睡":
+        return minutes if 10 <= minutes <= 90 else None
+    if sleep_type == "中睡":
+        return minutes if 180 <= minutes <= 300 else None
+    if sleep_type == "大睡":
+        return minutes if 420 <= minutes <= 540 else None
+    return minutes
+
+
 def _parse_repeat_count(text: str):
     count = _parse_raw_repeat_count(text)
     return max(1, min(count, MAX_ALARM_REPEAT)) if count else None
@@ -853,17 +867,19 @@ def handle_message(event):
         repeat_total = _parse_repeat_count(text) or 1
         time_str = None
         if pending_sleep_type:
-            minutes = _parse_duration_for_sleep_type(text, pending_sleep_type)
-            if minutes:
-                _, _, alarm_dt = _calc_from_duration(now, minutes)
-                time_str = alarm_dt.strftime("%H:%M")
-        if not time_str:
+            time_str = _parse_time(text)
+            if not time_str:
+                minutes = _parse_alarm_duration_for_sleep_type(text, pending_sleep_type)
+                if minutes:
+                    _, _, alarm_dt = _calc_from_duration(now, minutes)
+                    time_str = alarm_dt.strftime("%H:%M")
+        if not time_str and not pending_sleep_type:
             time_str, repeat_total = _parse_alarm_request(text, now)
         if time_str:
             _set_alarm_or_ask_repeat(token, user_id, time_str, repeat_total, text)
         else:
             reply(token, TextMessage(
-                text="❌ 我沒看懂鬧鐘時間\n\n" + _alarm_prompt(sleep_type=pending_sleep_type),
+                text="❌ 這個時間不適合目前睡眠類型\n\n" + _alarm_prompt(sleep_type=pending_sleep_type),
                 quick_reply=_alarm_time_quick_reply(pending_sleep_type),
             ))
         return
