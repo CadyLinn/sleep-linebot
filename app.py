@@ -1193,10 +1193,14 @@ def handle_message(event):
                 contents=FlexContainer.from_dict(flex),
             ),
             TextMessage(
-                text="也可以計算現在睡到某個時間，還能睡多久，或用睡眠週期找適合的起床時間。",
+                text=(
+                    "也可以使用：\n"
+                    "睡眠週期、算可睡多久、睡前提醒。"
+                ),
                 quick_reply=QuickReply(items=[
                     QuickReplyItem(action=MessageAction(label="睡眠週期", text="睡眠週期")),
                     QuickReplyItem(action=MessageAction(label="算可睡多久", text="算可睡多久")),
+                    QuickReplyItem(action=MessageAction(label="睡前提醒", text="睡前提醒")),
                 ]),
             ),
         ])
@@ -1246,8 +1250,8 @@ def handle_message(event):
             "「鬧鐘 07:30 3次」→ 直接設定3次\n"
             "「鬧鐘 30分鐘」→ 30 分鐘後提醒\n"
             "「取消鬧鐘」→ 刪除\n\n"
-            "🌙 推播省量\n"
-            "只有鬧鐘響會主動通知；睡前提醒已停用\n\n"
+            "🌙 睡前提醒\n"
+            "「睡眠建議」裡可找到；目前為省推播額度停用主動通知\n\n"
             "🔄 重設\n"
             "「重設」→ 顯示重設選項\n\n"
             "💡 其他\n"
@@ -1257,7 +1261,7 @@ def handle_message(event):
             "「選單」→ 主選單\n\n"
             "💻 電腦版 LINE 可直接輸入\n"
             "開始睡覺 / 起床 / 今日統計 / 週報告\n"
-            "鬧鐘 / 睡眠建議 / 算可睡多久 / 睡眠週期"
+            "鬧鐘 / 睡眠建議 / 睡眠週期 / 算可睡多久 / 睡前提醒"
         )))
 
     # ── 預設回覆（嘗試解析時長）──
