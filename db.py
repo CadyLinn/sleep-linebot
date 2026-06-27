@@ -83,6 +83,16 @@ def get_today_records(user_id: str):
     return sorted(records, key=_record_start)
 
 
+def has_today_big_sleep(user_id: str, include_open: bool = True):
+    """今天是否已有大睡紀錄。"""
+    for record in get_today_records(user_id):
+        if record.get("sleep_type") != "大睡":
+            continue
+        if include_open or record.get("sleep_end"):
+            return True
+    return False
+
+
 def get_week_records(user_id: str):
     """取得最近 7 天的睡眠紀錄"""
     today = datetime.now(TZ).date()
@@ -139,6 +149,14 @@ def set_alarm(user_id: str, time_str: str, repeat_total: int = 1):
         "alarm_last_trigger_date": None,
         "alarm_last_trigger_minute": None,
     })
+
+
+def get_alarm_repeat_limit_warned(user_id: str):
+    return bool(_get_settings(user_id).get("alarm_repeat_limit_warned"))
+
+
+def mark_alarm_repeat_limit_warned(user_id: str):
+    _set_fields(user_id, {"alarm_repeat_limit_warned": True})
 
 
 def get_alarm(user_id: str):
@@ -265,6 +283,20 @@ def reset_today_sleep(user_id: str):
         doc.reference.delete()
 
 
+def delete_latest_open_sleep(user_id: str):
+    """刪除目前進行中的最新睡眠紀錄。"""
+    open_docs = []
+    for doc in _records_col().where("user_id", "==", user_id).stream():
+        record = doc.to_dict()
+        if record.get("sleep_start") and not record.get("sleep_end"):
+            open_docs.append((doc, record))
+    if not open_docs:
+        return False
+    latest_doc, _ = max(open_docs, key=lambda item: _record_start(item[1]))
+    latest_doc.reference.delete()
+    return True
+
+
 def reset_all_settings(user_id: str):
     """清除鬧鐘、睡前提醒、pending 狀態"""
     _set_fields(user_id, {
@@ -273,6 +305,7 @@ def reset_all_settings(user_id: str):
         "alarm_repeat_total": 1,
         "alarm_last_trigger_date": None,
         "alarm_last_trigger_minute": None,
+        "alarm_repeat_limit_warned": False,
         "bedtime_reminder": None,
         "pending_action": None,
         "pending_sleep_type": None,

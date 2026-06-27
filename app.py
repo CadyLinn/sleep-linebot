@@ -19,8 +19,9 @@ from db import (
     set_alarm, get_alarm, delete_alarm, set_bedtime_reminder,
     get_bedtime_reminder, get_all_alarms, get_all_bedtime_reminders,
     set_pending, get_pending, clear_pending,
-    claim_alarm_trigger, reset_alarm_count,
-    reset_today_sleep, reset_all_settings, full_reset,
+    claim_alarm_trigger, reset_alarm_count, has_today_big_sleep,
+    get_alarm_repeat_limit_warned, mark_alarm_repeat_limit_warned,
+    reset_today_sleep, delete_latest_open_sleep, reset_all_settings, full_reset,
 )
 from flex_messages import (
     build_main_menu, build_sleep_stats, build_week_report,
@@ -45,6 +46,10 @@ SLEEP_TYPES = {
     "中睡": {"emoji": "😴", "label": "中睡（3-5小時）",   "suggestion_hours": 4},
     "大睡": {"emoji": "🛌", "label": "大睡（7-9小時）",   "suggestion_hours": 8},
 }
+
+MAX_ALARM_REPEAT = 3
+MAX_PLANNED_SLEEP_MINUTES = 16 * 60
+MAX_RECORDABLE_SLEEP_MINUTES = 24 * 60
 
 ALARM_MESSAGES = [
     "⏰ 鬧鐘響了！該起床了！\n現在是 {time}，美好的一天開始了 💪",
@@ -259,6 +264,11 @@ def _parse_duration_to_minutes(text: str):
 
 
 def _parse_repeat_count(text: str):
+    count = _parse_raw_repeat_count(text)
+    return max(1, min(count, MAX_ALARM_REPEAT)) if count else None
+
+
+def _parse_raw_repeat_count(text: str):
     number_words = {
         "一": 1, "二": 2, "兩": 2, "三": 3, "四": 4, "五": 5,
         "六": 6, "七": 7, "八": 8, "九": 9, "十": 10,
@@ -268,7 +278,24 @@ def _parse_repeat_count(text: str):
         return None
     raw_count = m.group(1)
     count = number_words.get(raw_count, int(raw_count) if raw_count.isdigit() else 1)
-    return max(1, min(count, 3))
+    return max(1, count)
+
+
+def _is_over_alarm_repeat_limit(text: str):
+    count = _parse_raw_repeat_count(text)
+    return bool(count and count > MAX_ALARM_REPEAT)
+
+
+def _reply_repeat_limit_once(token, user_id, time_str=None):
+    if get_alarm_repeat_limit_warned(user_id):
+        return False
+    mark_alarm_repeat_limit_warned(user_id)
+    suffix = f"\n已先設定為 {time_str} 通知 {MAX_ALARM_REPEAT} 次。" if time_str else ""
+    reply(token, TextMessage(text=(
+        f"鬧鐘最多只能通知 {MAX_ALARM_REPEAT} 次，避免消耗太多推播額度。"
+        f"{suffix}"
+    )))
+    return True
 
 
 def _strip_repeat_text(text: str):
@@ -306,6 +333,11 @@ def _reply_alarm_repeat_choice(token, user_id, time_str):
 
 
 def _set_alarm_or_ask_repeat(token, user_id, time_str, repeat_total, original_text):
+    if _is_over_alarm_repeat_limit(original_text):
+        clear_pending(user_id)
+        set_alarm(user_id, time_str, MAX_ALARM_REPEAT)
+        _reply_repeat_limit_once(token, user_id, time_str)
+        return
     if _parse_repeat_count(original_text):
         clear_pending(user_id)
         set_alarm(user_id, time_str, repeat_total)
@@ -418,11 +450,30 @@ def _auto_sleep_type(total_minutes: int) -> str:
         return "大睡"
 
 
+def _validate_sleep_start(token, user_id, total_minutes: int):
+    sleep_type = _auto_sleep_type(total_minutes)
+    if total_minutes > MAX_PLANNED_SLEEP_MINUTES:
+        reply(token, TextMessage(text=(
+            "睡眠時間不能設定超過 16 小時。\n\n"
+            "如果是忘記按起床，請用「取消這次紀錄」清掉後重新記錄。"
+        )))
+        return False
+    if sleep_type == "大睡" and has_today_big_sleep(user_id, include_open=False):
+        reply(token, TextMessage(text=(
+            "今天已經有一筆大睡紀錄了。\n\n"
+            "一天只能記錄一次大睡；如果剛剛那筆是誤按，請先取消那次紀錄或改記小睡/中睡。"
+        )))
+        return False
+    return True
+
+
 def _start_sleep_and_reply(token, user_id, now, sleep_type, hours, minutes, wake_dt):
     """統一的「開始睡眠＋建立回覆」邏輯，類型由實際時長自動決定"""
     # 永遠根據實際時長自動判斷類型
     total_min = hours * 60 + minutes
     sleep_type = _auto_sleep_type(total_min)
+    if not _validate_sleep_start(token, user_id, total_min):
+        return False
     s_info = SLEEP_TYPES[sleep_type]
     wake_str = wake_dt.strftime("%H:%M")
     start_sleep(user_id, now.isoformat(), sleep_type=sleep_type, target_wake=wake_str)
@@ -447,17 +498,19 @@ def _start_sleep_and_reply(token, user_id, now, sleep_type, hours, minutes, wake
             ),
         ),
     ])
+    return True
 
 
 def _set_wake_for_running_sleep_and_reply(token, user_id, now, sleep_type, hours, minutes, wake_dt):
     total_min = hours * 60 + minutes
     sleep_type = _auto_sleep_type(total_min)
+    if not _validate_sleep_start(token, user_id, total_min):
+        return False
     s_info = SLEEP_TYPES[sleep_type]
     wake_str = wake_dt.strftime("%H:%M")
     record = get_latest_record(user_id)
     if not record or record.get("sleep_end"):
-        _start_sleep_and_reply(token, user_id, now, sleep_type, hours, minutes, wake_dt)
-        return
+        return _start_sleep_and_reply(token, user_id, now, sleep_type, hours, minutes, wake_dt)
 
     start_time = datetime.fromisoformat(record["sleep_start"]).astimezone(TZ)
     set_alarm(user_id, wake_str)
@@ -479,6 +532,7 @@ def _set_wake_for_running_sleep_and_reply(token, user_id, now, sleep_type, hours
             "可點卡片上的「響3次」更改。"
         )),
     ])
+    return True
 
 
 def _sleep_type_quick_reply():
@@ -653,17 +707,17 @@ def handle_message(event):
         # 嘗試解析時長
         minutes = _parse_duration_to_minutes(text)
         if minutes and minutes > 0:
-            clear_pending(user_id)
             h, m, wake_dt = _calc_from_duration(now, minutes)
-            _set_wake_for_running_sleep_and_reply(token, user_id, now, pending_sleep_type, h, m, wake_dt)
+            if _set_wake_for_running_sleep_and_reply(token, user_id, now, pending_sleep_type, h, m, wake_dt):
+                clear_pending(user_id)
             return
 
         # 嘗試解析時間點
         time_str = _parse_time(text)
         if time_str:
-            clear_pending(user_id)
             h, m, wake_dt = _calc_from_wake_time(now, time_str)
-            _set_wake_for_running_sleep_and_reply(token, user_id, now, pending_sleep_type, h, m, wake_dt)
+            if _set_wake_for_running_sleep_and_reply(token, user_id, now, pending_sleep_type, h, m, wake_dt):
+                clear_pending(user_id)
             return
 
     # pending waiting_wake_time 的錯誤提示也需要傳 now
@@ -685,16 +739,16 @@ def handle_message(event):
     if pending_action == "waiting_exact_time":
         time_str = _parse_time(text)
         if time_str:
-            clear_pending(user_id)
             h, m, wake_dt = _calc_from_wake_time(now, time_str)
-            _set_wake_for_running_sleep_and_reply(token, user_id, now, pending_sleep_type, h, m, wake_dt)
+            if _set_wake_for_running_sleep_and_reply(token, user_id, now, pending_sleep_type, h, m, wake_dt):
+                clear_pending(user_id)
             return
 
         minutes = _parse_duration_to_minutes(text)
         if minutes and minutes > 0:
-            clear_pending(user_id)
             h, m, wake_dt = _calc_from_duration(now, minutes)
-            _set_wake_for_running_sleep_and_reply(token, user_id, now, pending_sleep_type, h, m, wake_dt)
+            if _set_wake_for_running_sleep_and_reply(token, user_id, now, pending_sleep_type, h, m, wake_dt):
+                clear_pending(user_id)
             return
 
         reply(token, TextMessage(
@@ -737,6 +791,11 @@ def handle_message(event):
         return
 
     if pending_action == "waiting_alarm_repeat":
+        if _is_over_alarm_repeat_limit(text):
+            clear_pending(user_id)
+            set_alarm(user_id, pending_sleep_type, MAX_ALARM_REPEAT)
+            _reply_repeat_limit_once(token, user_id, pending_sleep_type)
+            return
         repeat_total = _parse_repeat_count(text)
         if repeat_total:
             clear_pending(user_id)
@@ -924,6 +983,12 @@ def handle_message(event):
     # ── 三種睡眠類型 ──
     elif text in ["小睡", "中睡", "大睡"]:
         s_info = SLEEP_TYPES[text]
+        if text == "大睡" and has_today_big_sleep(user_id, include_open=False):
+            reply(token, TextMessage(text=(
+                "今天已經有一筆大睡紀錄了。\n\n"
+                "一天只能記錄一次大睡；你仍可以選「小睡」或「中睡」。"
+            )))
+            return
         record = get_latest_record(user_id)
         if not record or record.get("sleep_end"):
             start_sleep(user_id, now.isoformat(), sleep_type=text)
@@ -943,7 +1008,7 @@ def handle_message(event):
         if not record or record.get("sleep_end"):
             reply(token, TextMessage(text="❌ 沒有進行中的睡眠紀錄可以取消"))
         else:
-            reset_today_sleep(user_id)
+            delete_latest_open_sleep(user_id)
             delete_alarm(user_id)
             clear_pending(user_id)
             reply(token, TextMessage(text=(
@@ -966,14 +1031,26 @@ def handle_message(event):
             sleep_start = datetime.fromisoformat(record["sleep_start"]).astimezone(TZ)
             delta = now - sleep_start
             total_min = int(delta.total_seconds() / 60)
+            if total_min > MAX_RECORDABLE_SLEEP_MINUTES:
+                reply(token, TextMessage(text=(
+                    "這次睡眠已超過 24 小時，系統不會把它算進統計。\n\n"
+                    "如果是忘記按起床，請輸入「取消這次紀錄」清掉後重新記錄。"
+                )))
+                return
             hours = total_min // 60
             minutes = total_min % 60
             sleep_type = _auto_sleep_type(total_min)
+            forced_medium_sleep = False
+            if sleep_type == "大睡" and has_today_big_sleep(user_id, include_open=False):
+                sleep_type = "中睡"
+                forced_medium_sleep = True
             s_info = SLEEP_TYPES.get(sleep_type, SLEEP_TYPES["大睡"])
             end_sleep(user_id, now.isoformat(), sleep_type=sleep_type)
             delete_alarm(user_id)
 
-            if sleep_type == "大睡" and total_min >= 420:
+            if forced_medium_sleep:
+                quality, q_emoji = "今天已有大睡，這次依規則記為中睡", "⚠️"
+            elif sleep_type == "大睡" and total_min >= 420:
                 quality, q_emoji = "優良！繼續保持！", "🌟"
             elif sleep_type in ["中睡", "大睡"] and total_min >= 240:
                 quality, q_emoji = "不錯，身體有充電到", "⚡"
@@ -1051,10 +1128,14 @@ def handle_message(event):
             ))
 
     elif _is_alarm_repeat_command(text):
+        over_limit = _is_over_alarm_repeat_limit(text)
         repeat_total = _parse_repeat_count(text)
         alarm = get_alarm(user_id)
         if alarm and alarm.get("alarm_time") and repeat_total:
             set_alarm(user_id, alarm["alarm_time"], repeat_total)
+            if over_limit:
+                _reply_repeat_limit_once(token, user_id, alarm["alarm_time"])
+                return
             reply(token, TextMessage(text=(
                 f"好，{alarm['alarm_time']} 會響 {repeat_total} 次。"
             )))
