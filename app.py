@@ -256,6 +256,20 @@ def _parse_duration_to_minutes(text: str):
     return int(total) if matched and total > 0 else None
 
 
+def _parse_duration_for_sleep_type(text: str, sleep_type: str):
+    """選定睡眠類型後，純數字依類型解讀，避免小睡 10 被當成 10 小時。"""
+    clean = text.strip()
+    if re.fullmatch(r"\d+", clean):
+        val = int(clean)
+        if sleep_type == "小睡":
+            return val
+        if sleep_type == "中睡":
+            return val * 60 if val <= 5 else val
+        if sleep_type == "大睡":
+            return val * 60 if val <= 16 else val
+    return _parse_duration_to_minutes(text)
+
+
 def _parse_repeat_count(text: str):
     count = _parse_raw_repeat_count(text)
     return max(1, min(count, MAX_ALARM_REPEAT)) if count else None
@@ -685,7 +699,7 @@ def handle_message(event):
             return
 
         # 嘗試解析時長
-        minutes = _parse_duration_to_minutes(text)
+        minutes = _parse_duration_for_sleep_type(text, pending_sleep_type)
         if minutes and minutes > 0:
             h, m, wake_dt = _calc_from_duration(now, minutes)
             if _set_wake_for_running_sleep_and_reply(token, user_id, now, pending_sleep_type, h, m, wake_dt):
@@ -724,7 +738,7 @@ def handle_message(event):
                 clear_pending(user_id)
             return
 
-        minutes = _parse_duration_to_minutes(text)
+        minutes = _parse_duration_for_sleep_type(text, pending_sleep_type)
         if minutes and minutes > 0:
             h, m, wake_dt = _calc_from_duration(now, minutes)
             if _set_wake_for_running_sleep_and_reply(token, user_id, now, pending_sleep_type, h, m, wake_dt):
