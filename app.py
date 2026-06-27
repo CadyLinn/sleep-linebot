@@ -590,16 +590,47 @@ def _duration_prompt(sleep_type, now):
     )
 
 
-def _alarm_time_quick_reply():
-    return QuickReply(items=[
-        QuickReplyItem(action=MessageAction(label="⏱ 10分鐘後", text="10分鐘")),
-        QuickReplyItem(action=MessageAction(label="⏱ 20分鐘後", text="20分鐘")),
-        QuickReplyItem(action=MessageAction(label="⏱ 30分鐘後", text="30分鐘")),
-        QuickReplyItem(action=MessageAction(label="⏱ 1小時後", text="1小時")),
-        QuickReplyItem(action=MessageAction(label="⏱ 2小時後", text="2小時")),
+def _alarm_sleep_type(user_id: str):
+    record = get_latest_record(user_id)
+    if record and not record.get("sleep_end"):
+        return record.get("sleep_type")
+    return None
+
+
+def _alarm_time_quick_reply(sleep_type=None):
+    if sleep_type == "小睡":
+        items = [
+            QuickReplyItem(action=MessageAction(label="⏱ 10分鐘後", text="10分鐘")),
+            QuickReplyItem(action=MessageAction(label="⏱ 20分鐘後", text="20分鐘")),
+            QuickReplyItem(action=MessageAction(label="⏱ 30分鐘後", text="30分鐘")),
+            QuickReplyItem(action=MessageAction(label="⏱ 60分鐘後", text="60分鐘")),
+            QuickReplyItem(action=MessageAction(label="⏱ 90分鐘後", text="90分鐘")),
+        ]
+    elif sleep_type == "中睡":
+        items = [
+            QuickReplyItem(action=MessageAction(label="😴 3小時後", text="3小時")),
+            QuickReplyItem(action=MessageAction(label="😴 4小時後", text="4小時")),
+            QuickReplyItem(action=MessageAction(label="😴 5小時後", text="5小時")),
+        ]
+    elif sleep_type == "大睡":
+        items = [
+            QuickReplyItem(action=MessageAction(label="🛌 7小時後", text="7小時")),
+            QuickReplyItem(action=MessageAction(label="🛌 8小時後", text="8小時")),
+            QuickReplyItem(action=MessageAction(label="🛌 9小時後", text="9小時")),
+        ]
+    else:
+        items = [
+            QuickReplyItem(action=MessageAction(label="⏱ 10分鐘後", text="10分鐘")),
+            QuickReplyItem(action=MessageAction(label="⏱ 20分鐘後", text="20分鐘")),
+            QuickReplyItem(action=MessageAction(label="⏱ 30分鐘後", text="30分鐘")),
+            QuickReplyItem(action=MessageAction(label="⏱ 1小時後", text="1小時")),
+            QuickReplyItem(action=MessageAction(label="⏱ 2小時後", text="2小時")),
+        ]
+    items.extend([
         QuickReplyItem(action=MessageAction(label="🕒 指定時間", text="指定鬧鐘時間")),
         QuickReplyItem(action=MessageAction(label="❌ 取消鬧鐘", text="取消鬧鐘")),
     ])
+    return QuickReply(items=items)
 
 
 def _alarm_repeat_quick_reply():
@@ -610,13 +641,21 @@ def _alarm_repeat_quick_reply():
     ])
 
 
-def _alarm_prompt(alarm=None):
+def _alarm_prompt(alarm=None, sleep_type=None):
     current = ""
     if alarm and alarm.get("alarm_time"):
         current = f"目前鬧鐘：{alarm['alarm_time']}，通知 {alarm.get('alarm_repeat_total') or 1} 次\n\n"
+    if sleep_type == "小睡":
+        options = "小睡可選：10、20、30、60、90 分鐘後"
+    elif sleep_type == "中睡":
+        options = "中睡可選：3、4、5 小時後"
+    elif sleep_type == "大睡":
+        options = "大睡可選：7、8、9 小時後"
+    else:
+        options = "可以直接選下方：10分鐘後、20分鐘後、30分鐘後、1小時後"
     return (
         f"⏰ {current}要多久後響？\n\n"
-        "可以直接選下方：10分鐘後、20分鐘後、30分鐘後、1小時後\n"
+        f"{options}\n"
         "也可以輸入：30分鐘、1小時30分、0730、07:30\n\n"
         "設定時間後會再讓你選通知幾次。"
     )
@@ -774,13 +813,21 @@ def handle_message(event):
             ))
             return
 
-        time_str, repeat_total = _parse_alarm_request(text, now)
+        repeat_total = _parse_repeat_count(text) or 1
+        time_str = None
+        if pending_sleep_type:
+            minutes = _parse_duration_for_sleep_type(text, pending_sleep_type)
+            if minutes:
+                _, _, alarm_dt = _calc_from_duration(now, minutes)
+                time_str = alarm_dt.strftime("%H:%M")
+        if not time_str:
+            time_str, repeat_total = _parse_alarm_request(text, now)
         if time_str:
             _set_alarm_or_ask_repeat(token, user_id, time_str, repeat_total, text)
         else:
             reply(token, TextMessage(
-                text="❌ 我沒看懂鬧鐘時間\n\n" + _alarm_prompt(),
-                quick_reply=_alarm_time_quick_reply(),
+                text="❌ 我沒看懂鬧鐘時間\n\n" + _alarm_prompt(sleep_type=pending_sleep_type),
+                quick_reply=_alarm_time_quick_reply(pending_sleep_type),
             ))
         return
 
@@ -944,11 +991,10 @@ def handle_message(event):
                     f"⏰ 目前已有鬧鐘行程\n"
                     f"時間：{alarm['alarm_time']}\n"
                     f"通知：{alarm.get('alarm_repeat_total') or 1} 次\n\n"
-                    "要開始新的睡眠請按「開始睡覺」，新的起床時間會覆蓋目前鬧鐘。"
+                    "你可以修改目前鬧鐘，或取消鬧鐘。"
                 ),
                 quick_reply=QuickReply(items=[
-                    QuickReplyItem(action=MessageAction(label="😴 開始睡覺", text="選擇睡眠類型")),
-                    QuickReplyItem(action=MessageAction(label="🔄 重新設定鬧鐘", text="重新設定鬧鐘")),
+                    QuickReplyItem(action=MessageAction(label="🔄 修改鬧鐘", text="重新設定鬧鐘")),
                     QuickReplyItem(action=MessageAction(label="❌ 取消鬧鐘", text="取消鬧鐘")),
                 ]),
             ))
@@ -1083,10 +1129,12 @@ def handle_message(event):
 
     # ── 鬧鐘 ──
     elif text in ["設定鬧鐘", "重新設定鬧鐘"]:
-        set_pending(user_id, "waiting_alarm_time")
+        sleep_type = _alarm_sleep_type(user_id)
+        set_pending(user_id, "waiting_alarm_time", sleep_type=sleep_type)
+        alarm = get_alarm(user_id)
         reply(token, TextMessage(
-            text=_alarm_prompt(),
-            quick_reply=_alarm_time_quick_reply(),
+            text=_alarm_prompt(alarm=alarm, sleep_type=sleep_type),
+            quick_reply=_alarm_time_quick_reply(sleep_type),
         ))
 
     elif text in ["鬧鐘", "查看鬧鐘"]:
@@ -1105,10 +1153,11 @@ def handle_message(event):
                 ]),
             ))
         else:
-            set_pending(user_id, "waiting_alarm_time")
+            sleep_type = _alarm_sleep_type(user_id)
+            set_pending(user_id, "waiting_alarm_time", sleep_type=sleep_type)
             reply(token, TextMessage(
-                text=_alarm_prompt(),
-                quick_reply=_alarm_time_quick_reply(),
+                text=_alarm_prompt(sleep_type=sleep_type),
+                quick_reply=_alarm_time_quick_reply(sleep_type),
             ))
 
     elif _is_alarm_repeat_command(text):
