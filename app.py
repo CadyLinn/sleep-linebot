@@ -661,28 +661,23 @@ def _alarm_prompt(alarm=None, sleep_type=None):
     )
 
 
-def _try_update_running_alarm_from_duration(token, user_id, now, text):
-    """有進行中睡眠時，時長輸入優先詢問是否修改目前鬧鐘。"""
+def _reply_active_alarm_for_bare_number(token, user_id, text):
+    """有進行中睡眠和鬧鐘時，純數字不視為新睡眠或改鬧鐘。"""
+    if not re.fullmatch(r"\d+", text.strip()):
+        return False
+
     alarm = get_alarm(user_id)
     record = get_latest_record(user_id)
     if not alarm or not alarm.get("alarm_time") or not record or record.get("sleep_end"):
         return False
 
-    sleep_type = record.get("sleep_type")
-    minutes = _parse_duration_for_sleep_type(text, sleep_type)
-    if not minutes:
-        return False
-
-    _, _, alarm_dt = _calc_from_duration(now, minutes)
-    alarm_time = alarm_dt.strftime("%H:%M")
     repeat_total = alarm.get("alarm_repeat_total") or 1
-    set_pending(user_id, "confirm_alarm_update", sleep_type=alarm_time)
     reply(token, TextMessage(text=(
-        f"目前已有鬧鐘：{alarm['alarm_time']}，通知 {repeat_total} 次。\n\n"
-        f"要改成 {alarm_time} 嗎？"
+        f"目前鬧鐘：{alarm['alarm_time']}，會通知 {repeat_total} 次。\n\n"
+        "如果要改時間，請按「修改鬧鐘」。"
     ), quick_reply=QuickReply(items=[
-        QuickReplyItem(action=MessageAction(label="確認修改", text="確認修改鬧鐘")),
-        QuickReplyItem(action=MessageAction(label="取消", text="取消")),
+        QuickReplyItem(action=MessageAction(label="修改鬧鐘", text="重新設定鬧鐘")),
+        QuickReplyItem(action=MessageAction(label="取消鬧鐘", text="取消鬧鐘")),
     ])))
     return True
 
@@ -943,7 +938,7 @@ def handle_message(event):
             reply(token, TextMessage(text="✅ 已取消，資料保留完整！"))
         return
 
-    if _try_update_running_alarm_from_duration(token, user_id, now, text):
+    if _reply_active_alarm_for_bare_number(token, user_id, text):
         return
 
     # ════════════════════════════════════════════════════
