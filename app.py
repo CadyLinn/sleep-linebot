@@ -270,20 +270,6 @@ def _parse_duration_for_sleep_type(text: str, sleep_type: str):
     return _parse_duration_to_minutes(text)
 
 
-def _parse_alarm_duration_for_sleep_type(text: str, sleep_type: str):
-    """修改睡眠鬧鐘時，只接受該睡眠類型合理範圍。"""
-    minutes = _parse_duration_for_sleep_type(text, sleep_type)
-    if not minutes:
-        return None
-    if sleep_type == "小睡":
-        return minutes if 10 <= minutes <= 90 else None
-    if sleep_type == "中睡":
-        return minutes if 180 <= minutes <= 300 else None
-    if sleep_type == "大睡":
-        return minutes if 420 <= minutes <= 540 else None
-    return minutes
-
-
 def _parse_repeat_count(text: str):
     count = _parse_raw_repeat_count(text)
     return max(1, min(count, MAX_ALARM_REPEAT)) if count else None
@@ -660,17 +646,21 @@ def _alarm_prompt(alarm=None, sleep_type=None):
     if alarm and alarm.get("alarm_time"):
         current = f"目前鬧鐘：{alarm['alarm_time']}，通知 {alarm.get('alarm_repeat_total') or 1} 次\n\n"
     if sleep_type == "小睡":
-        options = "小睡可選：10、20、30、60、90 分鐘後"
+        options = "小睡快捷：10、20、30、60、90 分鐘後"
+        examples = "也可以自己輸入：10分鐘、2小時、0730、07:30"
     elif sleep_type == "中睡":
-        options = "中睡可選：3、4、5 小時後"
+        options = "中睡快捷：3、4、5 小時後"
+        examples = "也可以自己輸入：10分鐘、6小時、0730、07:30"
     elif sleep_type == "大睡":
-        options = "大睡可選：7、8、9 小時後"
+        options = "大睡快捷：7、8、9 小時後"
+        examples = "也可以自己輸入：10分鐘、10小時、0730、07:30"
     else:
         options = "可以直接選下方：10分鐘後、20分鐘後、30分鐘後、1小時後"
+        examples = "也可以輸入：30分鐘、1小時30分、0730、07:30"
     return (
         f"⏰ {current}要多久後響？\n\n"
         f"{options}\n"
-        "也可以輸入：30分鐘、1小時30分、0730、07:30\n\n"
+        f"{examples}\n\n"
         "設定時間後會再讓你選通知幾次。"
     )
 
@@ -869,7 +859,7 @@ def handle_message(event):
         if pending_sleep_type:
             time_str = _parse_time(text)
             if not time_str:
-                minutes = _parse_alarm_duration_for_sleep_type(text, pending_sleep_type)
+                minutes = _parse_duration_for_sleep_type(text, pending_sleep_type)
                 if minutes:
                     _, _, alarm_dt = _calc_from_duration(now, minutes)
                     time_str = alarm_dt.strftime("%H:%M")
@@ -879,7 +869,7 @@ def handle_message(event):
             _set_alarm_or_ask_repeat(token, user_id, time_str, repeat_total, text)
         else:
             reply(token, TextMessage(
-                text="❌ 這個時間不適合目前睡眠類型\n\n" + _alarm_prompt(sleep_type=pending_sleep_type),
+                text="❌ 我沒看懂鬧鐘時間，請改選下方選項或輸入指定時間。\n\n" + _alarm_prompt(sleep_type=pending_sleep_type),
                 quick_reply=_alarm_time_quick_reply(pending_sleep_type),
             ))
         return
