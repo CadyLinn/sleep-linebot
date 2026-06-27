@@ -661,6 +661,32 @@ def _alarm_prompt(alarm=None, sleep_type=None):
     )
 
 
+def _try_update_running_alarm_from_duration(token, user_id, now, text):
+    """有進行中睡眠時，時長輸入優先詢問是否修改目前鬧鐘。"""
+    alarm = get_alarm(user_id)
+    record = get_latest_record(user_id)
+    if not alarm or not alarm.get("alarm_time") or not record or record.get("sleep_end"):
+        return False
+
+    sleep_type = record.get("sleep_type")
+    minutes = _parse_duration_for_sleep_type(text, sleep_type)
+    if not minutes:
+        return False
+
+    _, _, alarm_dt = _calc_from_duration(now, minutes)
+    alarm_time = alarm_dt.strftime("%H:%M")
+    repeat_total = alarm.get("alarm_repeat_total") or 1
+    set_pending(user_id, "confirm_alarm_update", sleep_type=alarm_time)
+    reply(token, TextMessage(text=(
+        f"目前已有鬧鐘：{alarm['alarm_time']}，通知 {repeat_total} 次。\n\n"
+        f"要改成 {alarm_time} 嗎？"
+    ), quick_reply=QuickReply(items=[
+        QuickReplyItem(action=MessageAction(label="確認修改", text="確認修改鬧鐘")),
+        QuickReplyItem(action=MessageAction(label="取消", text="取消")),
+    ])))
+    return True
+
+
 GLOBAL_COMMANDS = {
     "選單", "menu", "Menu", "開始", "start", "嗨", "hi", "Hi", "hello", "Hello",
     "開始睡覺", "我要開始睡覺", "睡覺", "小睡", "中睡", "大睡", "起床", "醒來", "起床了",
@@ -713,6 +739,22 @@ def handle_message(event):
     if _should_leave_pending(pending_action, text):
         clear_pending(user_id)
         pending_action, pending_sleep_type = None, None
+
+    if pending_action == "confirm_alarm_update":
+        if text in ["確認修改鬧鐘", "確認修改", "確認", "好"]:
+            alarm = get_alarm(user_id)
+            repeat_total = (alarm or {}).get("alarm_repeat_total") or 1
+            set_alarm(user_id, pending_sleep_type, repeat_total)
+            clear_pending(user_id)
+            reply(token, TextMessage(text=(
+                f"⏰ 鬧鐘已修改\n"
+                f"時間：{pending_sleep_type}\n"
+                f"通知：{repeat_total} 次"
+            )))
+        else:
+            clear_pending(user_id)
+            reply(token, TextMessage(text="已取消修改，原本鬧鐘保留。"))
+        return
 
     if pending_action and text in ["取消", "取消設定", "取消鬧鐘", "刪除鬧鐘"]:
         clear_pending(user_id)
@@ -899,6 +941,9 @@ def handle_message(event):
         else:
             clear_pending(user_id)
             reply(token, TextMessage(text="✅ 已取消，資料保留完整！"))
+        return
+
+    if _try_update_running_alarm_from_duration(token, user_id, now, text):
         return
 
     # ════════════════════════════════════════════════════
