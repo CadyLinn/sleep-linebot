@@ -67,13 +67,17 @@ rich_menu.jpg       # LINE 圖文選單圖片
 assets/             # README 截圖與 GIF 展示
 requirements.txt    # Python 套件
 Dockerfile          # Cloud Run container build
+tests/              # pytest（單元測試 + Firestore emulator 整合測試）
+loadtest/           # Locust 壓力測試
+ops/                # 部署、Firestore 索引、監控告警設定腳本
+.github/workflows/  # CI/CD 與壓力測試
 ```
 
 ## Firestore Collections
 
 ```text
 sleep_records   # 睡眠紀錄
-user_settings   # 鬧鐘、睡前提醒、互動狀態
+user_settings   # 鬧鐘、互動狀態
 ```
 
 ## 環境變數
@@ -90,10 +94,21 @@ LINE_CHANNEL_SECRET
 ## 本機開發
 
 ```bash
-python -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
+python3.11 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements-dev.txt
 python app.py
+```
+
+## 測試
+
+```bash
+ruff check .
+pytest                      # 單元測試，不需要 GCP
+
+# 含 Firestore 整合測試（需要 Java + gcloud firestore emulator）
+gcloud emulators firestore start --host-port=localhost:8681 &
+FIRESTORE_EMULATOR_HOST=localhost:8681 pytest
 ```
 
 Webhook endpoint:
@@ -103,6 +118,10 @@ Webhook endpoint:
 ```
 
 ## 部署到 Cloud Run
+
+push 到 `main` 後 GitHub Actions 會自動測試、部署並切流量；設定方式、監控告警、回滾與壓力測試見 [ops/README.md](ops/README.md)。
+
+手動部署：
 
 ```bash
 gcloud run deploy sleep-linebot \

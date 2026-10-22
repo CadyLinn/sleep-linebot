@@ -170,7 +170,7 @@ def build_main_menu():
                 _menu_row("📊", "今日統計", "加總今天每一次睡眠與小睡", "查看", "今日統計", PURPLE),
                 _menu_row("📈", "週報告", "查看本週每天累計睡眠", "查看", "週報告", PURPLE),
                 _menu_row("⏰", "鬧鐘設定", "可設定時間、倒數分鐘與通知次數", "設定", "鬧鐘", CORAL),
-                _menu_row("💡", "睡眠建議", "改善睡眠品質的小知識", "查看", "睡眠建議", MINT),
+                _menu_row("💡", "睡眠建議", "睡眠週期與算可睡多久", "查看", "睡眠建議", MINT),
             ],
         },
     }
@@ -260,7 +260,6 @@ def build_sleep_countdown(sleep_type, sleep_type_info, start_time, wake_time, ho
                     "contents": [
                         _msg_btn("響1次", "鬧鐘響1次", VIOLET),
                         _msg_btn("響3次", "鬧鐘響3次", PURPLE),
-                        _msg_btn("響5次", "鬧鐘響5次", CORAL),
                     ],
                 },
             ],
@@ -290,7 +289,6 @@ def build_sleep_stats(records, now):
     if completed:
         total_min = sum(item[3] for item in completed)
         hours = total_min // 60
-        minutes = total_min % 60
         dur_text = _duration_text(total_min)
         color = MINT if hours >= 7 else (YELLOW if hours >= 4 else CORAL)
         status = "🌟 已完成" if hours >= 7 else ("⚡ 普通" if hours >= 4 else "😌 已記錄")

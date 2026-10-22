@@ -1,0 +1,20 @@
+{
+  "displayName": "sleep-linebot: 錯誤 log",
+  "documentation": {
+    "mimeType": "text/markdown",
+    "content": "服務寫出了 ERROR 等級的 log（例如鬧鐘推播失敗 `Alarm check failed`）。到 Logs Explorer 用 `resource.labels.service_name=\"__SERVICE__\" severity>=ERROR` 查看。"
+  },
+  "combiner": "OR",
+  "conditions": [{
+    "displayName": "ERROR logs in 5 min",
+    "conditionThreshold": {
+      "filter": "metric.type=\"logging.googleapis.com/user/sleepbot_errors\" AND resource.type=\"cloud_run_revision\"",
+      "comparison": "COMPARISON_GT",
+      "thresholdValue": 0,
+      "duration": "0s",
+      "aggregations": [{"alignmentPeriod": "300s", "perSeriesAligner": "ALIGN_SUM", "crossSeriesReducer": "REDUCE_SUM"}]
+    }
+  }],
+  "notificationChannels": ["__CHANNEL__"],
+  "alertStrategy": {"autoClose": "86400s"}
+}

@@ -4,3 +4,9 @@ __pycache__/
 *.db
 .git/
 .gitignore
+.venv/
+.github/
+tests/
+loadtest/
+ops/
+assets/

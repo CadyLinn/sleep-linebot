@@ -1,0 +1,18 @@
+{
+  "displayName": "sleep-linebot: 鬧鐘排程停止",
+  "documentation": {
+    "mimeType": "text/markdown",
+    "content": "10 分鐘內沒有任何 `alarm_check_completed` 紀錄，代表 Cloud Scheduler 沒在呼叫 `/tasks/check-alarms`，**所有使用者的鬧鐘都不會響**。\n\n檢查：`gcloud scheduler jobs list --location asia-east1`，以及 Cloud Run 的錯誤 log。"
+  },
+  "combiner": "OR",
+  "conditions": [{
+    "displayName": "No alarm check for 10 minutes",
+    "conditionAbsent": {
+      "filter": "metric.type=\"logging.googleapis.com/user/sleepbot_alarm_check_runs\" AND resource.type=\"cloud_run_revision\"",
+      "duration": "600s",
+      "aggregations": [{"alignmentPeriod": "300s", "perSeriesAligner": "ALIGN_SUM", "crossSeriesReducer": "REDUCE_SUM"}]
+    }
+  }],
+  "notificationChannels": ["__CHANNEL__"],
+  "alertStrategy": {"autoClose": "86400s"}
+}
