@@ -15,6 +15,8 @@ from linebot.v3.messaging import (
 )
 from linebot.v3.webhooks import MessageEvent, TextMessageContent
 import pytz
+from google.auth.transport import requests as google_requests
+from google.oauth2 import id_token
 
 from db import (
     init_db, start_sleep, end_sleep, get_latest_record, get_today_records, get_week_records,
@@ -67,6 +69,12 @@ TZ = pytz.timezone("Asia/Taipei")
 
 # 共用同一個 ApiClient，讓連到 LINE API 的 HTTPS 連線可以重複使用（不用每次重新握手）
 _line_api = MessagingApi(ApiClient(configuration))
+
+# /tasks/check-alarms 只接受 Cloud Scheduler 用這個服務帳號簽的 OIDC token。
+# 兩個都設定才會開啟驗證（本機開發、壓測不設定）。
+TASKS_INVOKER_SA = os.environ.get("TASKS_INVOKER_SA")
+TASKS_AUDIENCE = os.environ.get("TASKS_AUDIENCE")
+_google_request = google_requests.Request()
 
 # 壓力測試用：只記 log，不真的呼叫 LINE API
 LINE_DRY_RUN = os.environ.get("LINE_DRY_RUN") == "1"
@@ -214,8 +222,25 @@ def health():
 
 @app.route("/tasks/check-alarms", methods=["GET", "POST"])
 def check_alarms_task():
+    _verify_task_caller()
     check_alarms()
     return "OK"
+
+
+def _verify_task_caller():
+    if not (TASKS_INVOKER_SA and TASKS_AUDIENCE):
+        return
+    auth = request.headers.get("Authorization", "")
+    if not auth.startswith("Bearer "):
+        abort(401)
+    try:
+        claims = id_token.verify_oauth2_token(auth[len("Bearer "):], _google_request, audience=TASKS_AUDIENCE)
+    except ValueError as exc:
+        logger.warning("Rejected task call with invalid token: %s", exc)
+        abort(401)
+    if claims.get("email") != TASKS_INVOKER_SA or not claims.get("email_verified"):
+        logger.warning("Rejected task call from email=%s", claims.get("email"))
+        abort(403)
 
 
 # ── Helpers ─────────────────────────────────────────────────────────────────
