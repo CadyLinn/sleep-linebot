@@ -1,0 +1,132 @@
+name: CI/CD
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  PYTHON_VERSION: "3.11"
+  SERVICE: sleep-linebot
+
+jobs:
+  test:
+    name: Lint & test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: requirements*.txt
+
+      - run: pip install -r requirements-dev.txt
+
+      - name: Ruff
+        run: ruff check .
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - uses: google-github-actions/setup-gcloud@v2
+        with:
+          install_components: cloud-firestore-emulator
+
+      - name: Start Firestore emulator
+        run: |
+          gcloud emulators firestore start --host-port=localhost:8681 > emulator.log 2>&1 &
+          for i in $(seq 1 60); do curl -sf http://localhost:8681 > /dev/null && exit 0; sleep 1; done
+          cat emulator.log; exit 1
+
+      - name: Pytest
+        env:
+          FIRESTORE_EMULATOR_HOST: localhost:8681
+          GOOGLE_CLOUD_PROJECT: demo-sleep-bot
+        run: pytest --cov=. --cov-report=term-missing:skip-covered
+
+  docker:
+    name: Docker build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t sleep-linebot:ci .
+
+  deploy:
+    name: Deploy to Cloud Run
+    needs: [test, docker]
+    # 尚未設定 GCP 變數前（見 ops/README.md）會自動略過，不會讓 CI 失敗
+    if: >-
+      vars.GCP_PROJECT_ID != '' &&
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    environment: production
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+      REGION: ${{ vars.GCP_REGION }}
+      IMAGE: ${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/sleep-linebot/sleep-linebot:${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SA }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Build & push image
+        run: |
+          gcloud auth configure-docker "$REGION-docker.pkg.dev" --quiet
+          docker build -t "$IMAGE" .
+          docker push "$IMAGE"
+
+      - name: Deploy new revision (no traffic yet)
+        id: deploy
+        run: |
+          TAG="sha-${GITHUB_SHA::7}"
+          # 只換 image，環境變數（LINE token 等）沿用目前服務設定
+          gcloud run deploy "$SERVICE" --image "$IMAGE" --region "$REGION" \
+            --no-traffic --tag "$TAG" --quiet
+          URL=$(gcloud run services describe "$SERVICE" --region "$REGION" --format=json \
+            | jq -r --arg t "$TAG" '.status.traffic[] | select(.tag == $t) | .url')
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
+
+      - name: Smoke test new revision
+        env:
+          URL: ${{ steps.deploy.outputs.url }}
+        run: |
+          set -e
+          curl -fsS --retry 5 --retry-all-errors "$URL/" | grep -q "running"
+          code=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$URL/callback" -d '{}')
+          test "$code" = "400" || { echo "unsigned webhook returned $code, expected 400"; exit 1; }
+          code=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$URL/callback" -H 'X-Line-Signature: bad' -d '{}')
+          test "$code" = "400" || { echo "bad-signature webhook returned $code, expected 400"; exit 1; }
+
+      - name: Shift traffic to new revision
+        run: |
+          gcloud run services update-traffic "$SERVICE" --region "$REGION" --to-latest --quiet
+          gcloud run services update-traffic "$SERVICE" --region "$REGION" \
+            --remove-tags "${{ steps.deploy.outputs.tag }}" --quiet
+
+      - name: Summary
+        run: |
+          {
+            echo "### Deployed \`${GITHUB_SHA::7}\` to Cloud Run"
+            echo "Rollback: \`gcloud run services update-traffic $SERVICE --region $REGION --to-revisions=<PREVIOUS_REVISION>=100\`"
+          } >> "$GITHUB_STEP_SUMMARY"
