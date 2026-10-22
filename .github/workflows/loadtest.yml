@@ -1,0 +1,56 @@
+name: Load test
+
+# 對本機 Firestore emulator + 乾跑模式（不呼叫 LINE API）的服務施壓，
+# 不會碰到正式環境資料。PR 上跑短版當效能回歸檢查，也可以手動跑長版。
+on:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      users:
+        description: Concurrent simulated LINE users
+        default: "50"
+      duration:
+        description: Run time (e.g. 60s, 5m)
+        default: "2m"
+      records_per_user:
+        description: Historical sleep records seeded per user
+        default: "200"
+
+permissions:
+  contents: read
+
+jobs:
+  loadtest:
+    runs-on: ubuntu-latest
+    env:
+      USERS: ${{ inputs.users || '30' }}
+      DURATION: ${{ inputs.duration || '60s' }}
+      RECORDS_PER_USER: ${{ inputs.records_per_user || '200' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: requirements*.txt
+
+      - run: pip install -r requirements.txt -r loadtest/requirements.txt
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - uses: google-github-actions/setup-gcloud@v2
+        with:
+          install_components: cloud-firestore-emulator
+
+      - name: Run load test
+        run: ./loadtest/run_local.sh
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: loadtest-report
+          path: loadtest/out/
