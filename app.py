@@ -1,5 +1,7 @@
 import os
 import re
+import json
+import time
 import logging
 from datetime import datetime, timedelta
 from flask import Flask, request, abort
@@ -19,7 +21,7 @@ from db import (
     set_alarm, get_alarm, delete_alarm,
     get_all_alarms,
     set_pending, get_pending, clear_pending,
-    claim_alarm_trigger, reset_alarm_count, has_today_big_sleep,
+    claim_alarm_trigger, has_today_big_sleep,
     reset_today_sleep, delete_latest_open_sleep, reset_all_settings, full_reset,
 )
 from flex_messages import (
@@ -27,7 +29,31 @@ from flex_messages import (
     build_sleep_tips, build_timer_status, build_sleep_countdown,
 )
 
-logging.basicConfig(level=logging.INFO)
+_STANDARD_LOG_ATTRS = set(vars(logging.LogRecord("", 0, "", 0, "", (), None))) | {"message", "asctime"}
+
+
+class CloudLoggingFormatter(logging.Formatter):
+    """輸出 Cloud Logging 看得懂的 JSON；logger 的 extra 欄位會放進 jsonPayload。"""
+
+    def format(self, record):
+        message = record.getMessage()
+        if record.exc_info:
+            message += "\n" + self.formatException(record.exc_info)
+        payload = {"severity": record.levelname, "message": message, "logger": record.name}
+        payload.update({k: v for k, v in vars(record).items() if k not in _STANDARD_LOG_ATTRS})
+        return json.dumps(payload, ensure_ascii=False, default=str)
+
+
+def _setup_logging():
+    handler_ = logging.StreamHandler()
+    if os.environ.get("K_SERVICE") or os.environ.get("LOG_FORMAT") == "json":
+        handler_.setFormatter(CloudLoggingFormatter())
+    else:
+        handler_.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s"))
+    logging.basicConfig(level=logging.INFO, handlers=[handler_], force=True)
+
+
+_setup_logging()
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
@@ -38,6 +64,14 @@ init_db()
 configuration = Configuration(access_token=os.environ.get("LINE_CHANNEL_ACCESS_TOKEN", ""))
 handler = WebhookHandler(os.environ.get("LINE_CHANNEL_SECRET", ""))
 TZ = pytz.timezone("Asia/Taipei")
+
+# 共用同一個 ApiClient，讓連到 LINE API 的 HTTPS 連線可以重複使用（不用每次重新握手）
+_line_api = MessagingApi(ApiClient(configuration))
+
+# 壓力測試用：只記 log，不真的呼叫 LINE API
+LINE_DRY_RUN = os.environ.get("LINE_DRY_RUN") == "1"
+if LINE_DRY_RUN:
+    logger.warning("LINE_DRY_RUN=1: replies and pushes are logged, not sent")
 
 # 睡眠類型定義
 SLEEP_TYPES = {
@@ -60,12 +94,11 @@ ALARM_MESSAGES = [
 
 
 def send_push(user_id: str, text: str, quick_reply=None):
-    with ApiClient(configuration) as api_client:
-        line_bot_api = MessagingApi(api_client)
-        msg = TextMessage(text=text, quick_reply=quick_reply)
-        line_bot_api.push_message(
-            PushMessageRequest(to=user_id, messages=[msg])
-        )
+    msg = TextMessage(text=text, quick_reply=quick_reply)
+    if LINE_DRY_RUN:
+        logger.info("Dry-run push user_id=%s", user_id)
+        return
+    _line_api.push_message(PushMessageRequest(to=user_id, messages=[msg]))
     logger.info("Pushed message to user_id=%s", user_id)
 
 
@@ -75,61 +108,97 @@ _ALARM_QR = QuickReply(items=[
     QuickReplyItem(action=MessageAction(label="取消這次紀錄", text="取消紀錄")),
 ])
 
-def check_alarms():
-    now = datetime.now(TZ)
-    current_time = now.strftime("%H:%M")
-    current_minute_key = now.strftime("%Y-%m-%d %H:%M")
+def _check_user_alarm(now, alarm):
+    """處理單一使用者的鬧鐘，有推播回傳 True。
+
+    鬧鐘是一次性的：只在 alarm_date 當天響，響完（或錯過）就刪除，
+    不會隔天同一時間又響。
+    """
+    user_id, alarm_time, alarm_date, alarm_count, repeat_total, last_trigger_date, last_trigger_minute = alarm
     today = now.date().isoformat()
+    current_minute_key = now.strftime("%Y-%m-%d %H:%M")
+    try:
+        alarm_count = int(alarm_count or 0)
+        repeat_total = max(1, min(int(repeat_total or 1), MAX_ALARM_REPEAT))
+    except (TypeError, ValueError):
+        logger.warning("Skipping alarm with invalid counts user_id=%s alarm_count=%s repeat_total=%s", user_id, alarm_count, repeat_total)
+        return False
+
+    if last_trigger_minute == current_minute_key:
+        return False
+
+    if not alarm_date:
+        # 舊版資料沒有 alarm_date：之前某天已經響過的就是殘留鬧鐘，直接清掉
+        if last_trigger_date and last_trigger_date != today:
+            delete_alarm(user_id)
+            logger.info("Removed leftover legacy alarm user_id=%s alarm_time=%s", user_id, alarm_time)
+            return False
+        # 今天響過 → 還在今天的通知中；還沒響過 → 排在下一次出現的時間
+        if last_trigger_date == today or str(alarm_time) >= now.strftime("%H:%M"):
+            alarm_date = today
+        else:
+            alarm_date = (now.date() + timedelta(days=1)).isoformat()
+
+    try:
+        alarm_dt = TZ.localize(datetime.strptime(f"{alarm_date} {alarm_time}", "%Y-%m-%d %H:%M"))
+    except (TypeError, ValueError):
+        logger.warning("Skipping invalid alarm user_id=%s alarm_date=%s alarm_time=%s", user_id, alarm_date, alarm_time)
+        return False
+
+    minutes_since_alarm = int((now.replace(second=0, microsecond=0) - alarm_dt).total_seconds() // 60)
+    if minutes_since_alarm < 0:
+        return False
+    if minutes_since_alarm >= repeat_total or alarm_count >= repeat_total:
+        delete_alarm(user_id)
+        logger.info("Alarm expired user_id=%s alarm=%s %s rang=%s/%s", user_id, alarm_date, alarm_time, alarm_count, repeat_total)
+        return False
+    if alarm_count > minutes_since_alarm:
+        return False
+
+    if not claim_alarm_trigger(user_id, current_minute_key):
+        logger.info("Alarm claim skipped user_id=%s minute=%s", user_id, current_minute_key)
+        return False
+    msg_index = min(alarm_count, len(ALARM_MESSAGES) - 1)
+    # 每次鬧鐘都帶「起床」+「取消紀錄」快速按鈕
+    send_push(user_id, ALARM_MESSAGES[msg_index].format(time=now.strftime("%H:%M")), quick_reply=_ALARM_QR)
+    logger.info("Alarm triggered user_id=%s count=%s/%s", user_id, alarm_count + 1, repeat_total)
+    if alarm_count + 1 >= repeat_total:
+        delete_alarm(user_id)
+    return True
+
+
+def check_alarms(now=None):
+    started = time.monotonic()
+    now = now or datetime.now(TZ)
     alarms = get_all_alarms()
-    logger.info("Checking alarms at %s, active alarms=%s", current_time, len(alarms))
-    for user_id, alarm_time, alarm_count, repeat_total, last_trigger_date, last_trigger_minute in alarms:
+    triggered = failed = 0
+    for alarm in alarms:
+        # 單一使用者出錯（例如推播失敗）不能讓後面的人鬧鐘也不響
         try:
-            alarm_count = int(alarm_count or 0)
-            repeat_total = max(1, min(int(repeat_total or 1), 3))
-        except (TypeError, ValueError):
-            logger.warning("Skipping alarm with invalid counts user_id=%s alarm_count=%s repeat_total=%s", user_id, alarm_count, repeat_total)
-            continue
-
-        if last_trigger_minute == current_minute_key:
-            logger.info("Alarm already triggered this minute user_id=%s alarm_time=%s", user_id, alarm_time)
-            continue
-
-        try:
-            alarm_dt = TZ.localize(datetime.strptime(f"{today} {alarm_time}", "%Y-%m-%d %H:%M"))
-        except (TypeError, ValueError):
-            logger.warning("Skipping invalid alarm user_id=%s alarm_time=%s", user_id, alarm_time)
-            continue
-
-        minutes_since_alarm = int((now.replace(second=0, microsecond=0) - alarm_dt).total_seconds() // 60)
-        should_start_today = minutes_since_alarm == 0 and last_trigger_date != today
-        should_continue = (
-            last_trigger_date == today
-            and 0 < minutes_since_alarm < repeat_total
-            and alarm_count == minutes_since_alarm
-        )
-        if should_start_today or should_continue:
-            if should_start_today:
-                reset_alarm_count(user_id)
-                alarm_count = 0
-            msg_index = min(alarm_count, len(ALARM_MESSAGES) - 1)
-            msg = ALARM_MESSAGES[msg_index].format(time=current_time)
-            # 每次鬧鐘都帶「起床」+「取消紀錄」快速按鈕
-            if not claim_alarm_trigger(user_id, current_minute_key):
-                logger.info("Alarm claim skipped user_id=%s minute=%s", user_id, current_minute_key)
-                continue
-            send_push(user_id, msg, quick_reply=_ALARM_QR)
-            logger.info(
-                "Alarm triggered user_id=%s count=%s/%s",
-                user_id, alarm_count + 1, repeat_total,
-            )
-        elif last_trigger_date != today and alarm_count > 0:
-            reset_alarm_count(user_id)
+            triggered += _check_user_alarm(now, alarm)
+        except Exception:
+            failed += 1
+            logger.exception("Alarm check failed user_id=%s", alarm[0])
+    logger.info(
+        "Alarm check completed at %s active=%s triggered=%s failed=%s",
+        now.strftime("%H:%M"), len(alarms), triggered, failed,
+        extra={
+            "event": "alarm_check_completed",
+            "active_alarms": len(alarms),
+            "triggered": triggered,
+            "failed": failed,
+            "duration_ms": round((time.monotonic() - started) * 1000),
+        },
+    )
+    return {"active": len(alarms), "triggered": triggered, "failed": failed}
 
 # ── Webhook ────────────────────────────────────────────────────────────────
 
 @app.route("/callback", methods=["POST"])
 def callback():
-    signature = request.headers["X-Line-Signature"]
+    signature = request.headers.get("X-Line-Signature")
+    if not signature:
+        abort(400)
     body = request.get_data(as_text=True)
     try:
         handler.handle(body, signature)
@@ -152,13 +221,14 @@ def check_alarms_task():
 # ── Helpers ─────────────────────────────────────────────────────────────────
 
 def reply(reply_token, messages):
-    with ApiClient(configuration) as api_client:
-        line_bot_api = MessagingApi(api_client)
-        if not isinstance(messages, list):
-            messages = [messages]
-        line_bot_api.reply_message(
-            ReplyMessageRequest(reply_token=reply_token, messages=messages)
-        )
+    if not isinstance(messages, list):
+        messages = [messages]
+    if LINE_DRY_RUN:
+        logger.info("Dry-run reply messages=%s", len(messages))
+        return
+    _line_api.reply_message(
+        ReplyMessageRequest(reply_token=reply_token, messages=messages)
+    )
 
 
 def _parse_time(text: str):
