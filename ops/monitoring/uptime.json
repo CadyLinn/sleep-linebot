@@ -1,0 +1,20 @@
+{
+  "displayName": "sleep-linebot: 服務無法連線",
+  "documentation": {
+    "mimeType": "text/markdown",
+    "content": "外部 uptime check 連不到服務首頁。LINE webhook 可能也收不到。檢查 Cloud Run 服務狀態與最近一次部署。"
+  },
+  "combiner": "OR",
+  "conditions": [{
+    "displayName": "Uptime check failing",
+    "conditionThreshold": {
+      "filter": "metric.type=\"monitoring.googleapis.com/uptime_check/check_passed\" AND metric.label.check_id=\"__CHECK_ID__\" AND resource.type=\"uptime_url\"",
+      "comparison": "COMPARISON_GT",
+      "thresholdValue": 1,
+      "duration": "300s",
+      "aggregations": [{"alignmentPeriod": "600s", "perSeriesAligner": "ALIGN_NEXT_OLDER", "crossSeriesReducer": "REDUCE_COUNT_FALSE", "groupByFields": ["resource.label.*"]}]
+    }
+  }],
+  "notificationChannels": ["__CHANNEL__"],
+  "alertStrategy": {"autoClose": "86400s"}
+}
