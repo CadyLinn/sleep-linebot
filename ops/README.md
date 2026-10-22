@@ -43,6 +43,19 @@ Cloud Run 上 log 是 JSON 格式（`severity`、`event` 等欄位），可在 L
 resource.labels.service_name="sleep-linebot" jsonPayload.event="alarm_check_completed"
 ```
 
+## 鬧鐘排程端點驗證
+
+`/tasks/check-alarms` 只接受 Cloud Scheduler 用 `alarm-scheduler` 服務帳號簽的 OIDC token，其他請求回 401/403。服務設了 `TASKS_INVOKER_SA` 和 `TASKS_AUDIENCE` 才會開啟驗證，本機開發和壓測不需要。
+
+設定順序不能反，不然所有鬧鐘都會停：
+
+```bash
+./ops/secure_alarm_task.sh scheduler   # 1. Scheduler 開始帶 token
+# 2. 部署含驗證程式的版本（push 到 main）
+./ops/secure_alarm_task.sh enforce     # 3. 開啟驗證
+./ops/secure_alarm_task.sh disable     # 出問題時緊急關閉驗證
+```
+
 ## 回滾
 
 ```bash
