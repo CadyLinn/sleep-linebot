@@ -3,3 +3,5 @@ flask==3.*
 pytz
 gunicorn
 google-cloud-firestore
+google-auth
+requests
