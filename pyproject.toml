@@ -1,0 +1,12 @@
+[tool.pytest.ini_options]
+pythonpath = [".", "tests"]
+testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 140
+extend-exclude = ["venv", ".venv"]
+
+[tool.ruff.lint]
+# 先只擋真正的錯誤（語法、未定義名稱、未使用 import 等），不強制排版風格
+select = ["E9", "F"]

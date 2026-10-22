@@ -289,7 +289,6 @@ def build_sleep_stats(records, now):
     if completed:
         total_min = sum(item[3] for item in completed)
         hours = total_min // 60
-        minutes = total_min % 60
         dur_text = _duration_text(total_min)
         color = MINT if hours >= 7 else (YELLOW if hours >= 4 else CORAL)
         status = "🌟 已完成" if hours >= 7 else ("⚡ 普通" if hours >= 4 else "😌 已記錄")
