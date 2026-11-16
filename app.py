@@ -15,6 +15,7 @@ from linebot.v3.messaging import (
 )
 from linebot.v3.webhooks import MessageEvent, TextMessageContent
 import pytz
+from google.auth import exceptions as google_auth_exceptions
 from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token
 
@@ -233,11 +234,20 @@ def _verify_task_caller():
     auth = request.headers.get("Authorization", "")
     if not auth.startswith("Bearer "):
         abort(401)
-    try:
-        claims = id_token.verify_oauth2_token(auth[len("Bearer "):], _google_request, audience=TASKS_AUDIENCE)
-    except ValueError as exc:
-        logger.warning("Rejected task call with invalid token: %s", exc)
-        abort(401)
+    token = auth[len("Bearer "):]
+    # 驗 token 要先抓 Google 公鑰；偶爾連線會被對方斷掉（RemoteDisconnected），重試一次。
+    # 還是失敗就回 503，讓 Cloud Scheduler 重送，而不是丟 500。
+    for attempt in range(2):
+        try:
+            claims = id_token.verify_oauth2_token(token, _google_request, audience=TASKS_AUDIENCE)
+            break
+        except google_auth_exceptions.TransportError as exc:
+            if attempt:
+                logger.warning("Could not fetch Google certs to verify task token: %s", exc)
+                abort(503)
+        except ValueError as exc:
+            logger.warning("Rejected task call with invalid token: %s", exc)
+            abort(401)
     if claims.get("email") != TASKS_INVOKER_SA or not claims.get("email_verified"):
         logger.warning("Rejected task call from email=%s", claims.get("email"))
         abort(403)

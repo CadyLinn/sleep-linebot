@@ -23,7 +23,8 @@ case "${1:-}" in
     $G iam service-accounts describe "$SA" > /dev/null 2>&1 ||
       $G iam service-accounts create "$SA_NAME" --display-name "Cloud Scheduler alarm caller"
     $G scheduler jobs update http "$JOB" --location "$REGION" \
-      --oidc-service-account-email "$SA" --oidc-token-audience "$AUDIENCE"
+      --oidc-service-account-email "$SA" --oidc-token-audience "$AUDIENCE" \
+      --max-retry-attempts 2 --min-backoff 5s
     echo "Scheduler now sends OIDC tokens as $SA (audience $AUDIENCE)"
     ;;
   enforce)
