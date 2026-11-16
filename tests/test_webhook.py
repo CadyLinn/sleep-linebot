@@ -126,3 +126,30 @@ def test_check_alarms_task_accepts_scheduler_token(secured_task):
     resp = secured_task.post("/tasks/check-alarms", headers={"Authorization": "Bearer scheduler"})
     assert resp.status_code == 200
     assert secured_task.checks == [1]
+
+
+def test_check_alarms_task_retries_cert_fetch_once(secured_task, monkeypatch):
+    real_verify = app.id_token.verify_oauth2_token
+    calls = []
+
+    def flaky_verify(token, request, audience):
+        calls.append(1)
+        if len(calls) == 1:
+            raise app.google_auth_exceptions.TransportError("Remote end closed connection")
+        return real_verify(token, request, audience)
+
+    monkeypatch.setattr(app.id_token, "verify_oauth2_token", flaky_verify)
+    resp = secured_task.post("/tasks/check-alarms", headers={"Authorization": "Bearer scheduler"})
+    assert resp.status_code == 200
+    assert len(calls) == 2
+    assert secured_task.checks == [1]
+
+
+def test_check_alarms_task_returns_503_when_certs_unreachable(secured_task, monkeypatch):
+    def down(token, request, audience):
+        raise app.google_auth_exceptions.TransportError("Remote end closed connection")
+
+    monkeypatch.setattr(app.id_token, "verify_oauth2_token", down)
+    resp = secured_task.post("/tasks/check-alarms", headers={"Authorization": "Bearer scheduler"})
+    assert resp.status_code == 503
+    assert secured_task.checks == []
